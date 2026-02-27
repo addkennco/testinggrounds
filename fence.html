@@ -7,8 +7,29 @@
 <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; cursor: default; }
-  #wrap { position: relative; width: 100vw; height: 100vh; }
+
+  /* ── LAYER 1: viewport root — pagebkg.png fills the bars/corners ── */
+  body {
+    background: #000 url('assets/pagebkg.png') center center / cover no-repeat;
+    overflow: hidden;
+    width: 100vw; height: 100vh;
+    cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── LAYER 2: 16:9 game container — canvases live here ── */
+  #wrap {
+    position: relative;
+    /* Fit the largest 16:9 rectangle inside the viewport */
+    width:  min(100vw, 177.78vh);
+    height: min(100vh, 56.25vw);
+    flex-shrink: 0;
+    background: #000;
+    overflow: hidden;
+  }
+
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   #post {
     pointer-events: none;
@@ -23,6 +44,17 @@
   }
   #fade.clear { opacity: 0; }
   #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
+
+  /* ── LAYER 3: overlay — fixed over everything, pointer-events:none ── */
+  /* Bleeds inward over the game edges with the ragged/skeuomorphic border */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw; height: 100vh;
+    background: url('assets/overlay.png') center center / 100% 100% no-repeat;
+    pointer-events: none;
+    z-index: 9999;
+  }
 </style>
 </head>
 <body>
@@ -32,6 +64,8 @@
   <div id="clicker"></div>
   <div id="fade"></div>
 </div>
+<!-- overlay sits outside #wrap so it covers the full viewport -->
+<div id="overlay"></div>
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
 let fenceAudioCtx = null;
@@ -61,8 +95,9 @@ let W, H;
 let _stars = null;
 
 function resize() {
-  W = window.innerWidth;
-  H = window.innerHeight;
+  const wrap = document.getElementById('wrap');
+  W = wrap.clientWidth;
+  H = wrap.clientHeight;
   scene.width = post.width  = W;
   scene.height= post.height = H;
   _stars = null;
@@ -160,22 +195,34 @@ function drawHaze() {
 
   const haze = ctx.createLinearGradient(0, horizonY - hazeH * 0.5, 0, horizonY + hazeH);
   haze.addColorStop(0,   'rgba(18,8,30,0)');
-  haze.addColorStop(0.4, 'rgba(22,10,35,0.28)');
-  haze.addColorStop(0.7, 'rgba(16,8,24,0.18)');
+  haze.addColorStop(0.4, 'rgba(22,10,35,0.35)');
+  haze.addColorStop(0.7, 'rgba(16,8,24,0.22)');
   haze.addColorStop(1,   'rgba(8,4,14,0)');
   ctx.fillStyle = haze;
   ctx.fillRect(0, horizonY - hazeH * 0.5, W, hazeH * 1.5);
 
+  // Thin horizon seam — gives the eye a clear ground/sky split
+  ctx.save();
+  ctx.strokeStyle = 'rgba(60,30,50,0.55)';
+  ctx.lineWidth   = 1;
+  ctx.shadowColor = 'rgba(80,35,55,0.4)';
+  ctx.shadowBlur  = 4;
+  ctx.beginPath();
+  ctx.moveTo(0, horizonY);
+  ctx.lineTo(W, horizonY);
+  ctx.stroke();
+  ctx.restore();
+
   // Side darkness — narrow corridor effect
   const leftDark = ctx.createLinearGradient(0, 0, W * 0.18, 0);
-  leftDark.addColorStop(0, 'rgba(2,1,8,0.55)');
+  leftDark.addColorStop(0, 'rgba(2,1,8,0.60)');
   leftDark.addColorStop(1, 'rgba(2,1,8,0)');
   ctx.fillStyle = leftDark;
   ctx.fillRect(0, 0, W * 0.18, H);
 
   const rightDark = ctx.createLinearGradient(W * 0.82, 0, W, 0);
   rightDark.addColorStop(0, 'rgba(2,1,8,0)');
-  rightDark.addColorStop(1, 'rgba(2,1,8,0.55)');
+  rightDark.addColorStop(1, 'rgba(2,1,8,0.60)');
   ctx.fillStyle = rightDark;
   ctx.fillRect(W * 0.82, 0, W * 0.18, H);
 }
@@ -241,9 +288,13 @@ const LINES = [
   ]},
 ];
 
-const FONT_SIZE  = 26;   // rendered at full res → gets pixelated by dither
-const FONT_SMALL = 12;
-const FONT       = `'Silkscreen', monospace`;
+const FONT_SIZE = 28;   // rendered at full res → gets pixelated by dither
+const FONT      = `'Silkscreen', monospace`;
+
+// Dialogue Y: sits in the lower quarter of the screen, always clear of the ground
+// Using H * 0.76 as a floor so it never rides up into the scene at tall viewports
+function dlgY() { return Math.max(H * 0.72, H - 220); }
+function choiceBaseY() { return dlgY(); }
 
 let lineIndex   = 0;
 let charIndex   = 0;
@@ -251,35 +302,23 @@ let typing      = false;
 let lineReady   = false;
 let typingTimer = null;
 let sceneEnding = false;
-let showHint    = false;
-let hintAlpha   = 0;
 let cursorOn    = true;
 let cursorMs    = 0;
 let lastFrameMs = 0;
 let choiceHover = -1;
-let mouseX      = 0;
 let mouseY      = 0;
-
-// ─── DIALOGUE BOX ─────────────────────────────────────────────────────────────
-function getDlgBox() {
-  const boxW = Math.min(W * 0.74, 720);
-  const boxH = FONT_SIZE * 2 + 48;
-  const bx   = Math.round((W - boxW) * 0.5);
-  const by   = Math.round(H * 0.74);
-  return { bx, by, boxW, boxH };
-}
 
 // ─── CHOICE CARDS ─────────────────────────────────────────────────────────────
 function getChoiceRects() {
-  const opts = LINES[LINES.length - 1].options;
-  const ch   = FONT_SIZE + 24;
-  const tx   = W * 0.09;
-  const baseY = H * 0.76;
+  const opts  = LINES[LINES.length - 1].options;
+  const rowH  = FONT_SIZE + 28;
+  const tx    = W * 0.09;
+  const baseY = choiceBaseY();
   return opts.map((text, i) => ({
-    bx:   tx,
-    by:   baseY + i * (ch + 12),
-    bw:   W * 0.82,
-    bh:   ch,
+    bx: tx,
+    by: baseY + i * (rowH + 10),
+    bw: W * 0.82,
+    bh: rowH,
     text,
   }));
 }
@@ -304,8 +343,12 @@ function drawDialogue(now) {
       ctx.font         = `${FONT_SIZE}px ${FONT}`;
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'middle';
-      ctx.shadowColor  = hover ? 'rgba(160,210,255,0.95)' : 'rgba(100,160,220,0.5)';
-      ctx.shadowBlur   = hover ? 18 : 5;
+      // Double-draw glow so choices survive dither
+      ctx.shadowColor  = hover ? 'rgba(160,210,255,0.95)' : 'rgba(100,160,220,0.55)';
+      ctx.shadowBlur   = hover ? 22 : 8;
+      ctx.fillStyle    = hover ? 'rgba(232,244,255,0.55)' : 'rgba(122,172,204,0.45)';
+      ctx.fillText(text, bx, by + bh * 0.5);
+      ctx.shadowBlur   = hover ? 8 : 3;
       ctx.fillStyle    = hover ? '#e8f4ff' : '#7aaccc';
       ctx.fillText(text, bx, by + bh * 0.5);
       ctx.restore();
@@ -317,7 +360,7 @@ function drawDialogue(now) {
   ctx.save();
   const displayed = line.text.slice(0, charIndex);
   const tx = W * 0.09;
-  const ty = H * 0.80;
+  const ty = dlgY();
 
   ctx.font         = `${line.italic ? 'italic ' : ''}${FONT_SIZE}px ${FONT}`;
   ctx.textAlign    = 'left';
@@ -325,18 +368,18 @@ function drawDialogue(now) {
 
   if (line.italic) {
     ctx.shadowColor = 'rgba(140,200,255,0.95)';
-    ctx.shadowBlur  = 20;
+    ctx.shadowBlur  = 22;
     ctx.fillStyle   = 'rgba(155,205,245,0.45)';
     ctx.fillText(displayed, tx, ty);
-    ctx.shadowBlur  = 8;
-    ctx.fillStyle   = 'rgba(195,225,255,0.90)';
+    ctx.shadowBlur  = 9;
+    ctx.fillStyle   = 'rgba(195,225,255,0.92)';
     ctx.fillText(displayed, tx, ty);
   } else {
-    ctx.shadowColor = 'rgba(150,215,255,0.65)';
-    ctx.shadowBlur  = 12;
-    ctx.fillStyle   = 'rgba(175,215,240,0.38)';
+    ctx.shadowColor = 'rgba(150,215,255,0.70)';
+    ctx.shadowBlur  = 16;
+    ctx.fillStyle   = 'rgba(175,215,240,0.42)';
     ctx.fillText(displayed, tx, ty);
-    ctx.shadowBlur  = 4;
+    ctx.shadowBlur  = 5;
     ctx.fillStyle   = '#bcdcf0';
     ctx.fillText(displayed, tx, ty);
   }
@@ -344,10 +387,25 @@ function drawDialogue(now) {
   // Blinking cursor
   if (lineReady && cursorOn) {
     const tw = ctx.measureText(displayed).width;
-    ctx.shadowBlur  = 5;
+    ctx.shadowBlur  = 6;
     ctx.shadowColor = 'rgba(130,190,240,0.8)';
     ctx.fillStyle   = '#88b8d8';
     ctx.fillRect(tx + tw + 3, ty + 2, 4, FONT_SIZE - 2);
+  }
+
+  // "click to continue" hint — pulses gently below the text line
+  if (lineReady) {
+    const pulse  = 0.20 + 0.20 * Math.abs(Math.sin(now * 0.0016));
+    const hintY  = ty + FONT_SIZE + 14;
+    ctx.globalAlpha = pulse;
+    ctx.font        = `14px ${FONT}`;
+    ctx.shadowColor = 'rgba(130,180,240,0.80)';
+    ctx.shadowBlur  = 10;
+    ctx.fillStyle   = 'rgba(130,180,220,0.60)';
+    ctx.fillText('click to continue', tx, hintY);
+    ctx.shadowBlur  = 4;
+    ctx.fillStyle   = 'rgba(160,200,240,0.90)';
+    ctx.fillText('click to continue', tx, hintY);
   }
 
   ctx.restore();
@@ -362,12 +420,10 @@ function startTyping() {
   charIndex = 0;
   typing    = true;
   lineReady = false;
-  showHint  = false;
-  hintAlpha = 0;
 
   function tick() {
     if (charIndex >= line.text.length) {
-      typing = false; lineReady = true; showHint = true; return;
+      typing = false; lineReady = true; return;
     }
     const ch  = line.text[charIndex++];
     const del = 40
@@ -386,7 +442,7 @@ function advance() {
   if (typing) {
     clearTimeout(typingTimer);
     charIndex = line.text.length;
-    typing = false; lineReady = true; showHint = true;
+    typing = false; lineReady = true;
     return;
   }
   if (lineReady) { lineIndex++; startTyping(); }
@@ -547,7 +603,7 @@ document.getElementById('clicker').addEventListener('click', e => {
   handleClick(e.clientX, e.clientY);
 });
 document.getElementById('clicker').addEventListener('mousemove', e => {
-  mouseX = e.clientX; mouseY = e.clientY;
+  mouseY = e.clientY;
   handleMouseMove(e.clientX, e.clientY);
 });
 document.addEventListener('keydown', e => {
