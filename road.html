@@ -492,14 +492,12 @@ function drawDialogue(now) {
   const line = LINES[lineIndex];
   if (!line) return;
 
-  const { bx, by, boxW, boxH } = getDlgBox();
-
   ctx.save();
   ctx.globalAlpha = dlgAlpha;
 
   const displayed = line.text.slice(0, charIndex);
-  const tx = bx + 28;
-  const ty = by + 16;
+  const tx = W * 0.09;
+  const ty = H * 0.80;
 
   ctx.font         = `${line.italic ? 'italic ' : ''}${DLG_SIZE}px ${DLG_FONT}`;
   ctx.textAlign    = 'left';
