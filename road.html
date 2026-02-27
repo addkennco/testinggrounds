@@ -182,7 +182,7 @@ function drawRoad() {
 
 // ─── HEADLIGHT GLOW — single centered ambient beam ────────────────────────────
 function drawHeadlightCones() {
-  const baseY = H * 0.72;
+  const baseY = H * 0.88;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -191,7 +191,7 @@ function drawHeadlightCones() {
   ctx.save();
   ctx.translate(VP_X, baseY);
   ctx.scale(1, 0.55);
-  const gOuter = ctx.createRadialGradient(0, 0, 0, 0, 0, W * 0.52);
+  const gOuter = ctx.createRadialGradient(0, 0, 0, 0, 0, W * 0.70);
   gOuter.addColorStop(0,    'rgba(255, 252, 195, 0.18)');
   gOuter.addColorStop(0.22, 'rgba(245, 248, 170, 0.09)');
   gOuter.addColorStop(0.55, 'rgba(210, 228, 140, 0.03)');
@@ -203,17 +203,17 @@ function drawHeadlightCones() {
   ctx.restore();
 
   // Tight bright center hotspot — the hood reflection
-  const gHot = ctx.createRadialGradient(VP_X, baseY, 0, VP_X, baseY, W * 0.18);
+  const gHot = ctx.createRadialGradient(VP_X, baseY, 0, VP_X, baseY, W * 0.24);
   gHot.addColorStop(0,    'rgba(255, 255, 210, 0.28)');
   gHot.addColorStop(0.30, 'rgba(255, 252, 185, 0.11)');
   gHot.addColorStop(1,    'rgba(0, 0, 0, 0)');
   ctx.beginPath();
-  ctx.arc(VP_X, baseY, W * 0.18, 0, Math.PI * 2);
+  ctx.arc(VP_X, baseY, W * 0.24, 0, Math.PI * 2);
   ctx.fillStyle = gHot;
   ctx.fill();
 
   // Road surface wash — long gentle streak down the center lane
-  const roadGlow = ctx.createRadialGradient(VP_X, H * 0.80, 0, VP_X, H * 0.80, W * 0.46);
+  const roadGlow = ctx.createRadialGradient(VP_X, H * 0.88, 0, VP_X, H * 0.88, W * 0.62);
   roadGlow.addColorStop(0,   'rgba(215, 218, 155, 0.09)');
   roadGlow.addColorStop(0.5, 'rgba(185, 198, 125, 0.03)');
   roadGlow.addColorStop(1,   'rgba(0, 0, 0, 0)');
@@ -244,10 +244,10 @@ function drawAirFreshener() {
 
   // Pivot lower — 340px down in image space
   const pivotX = VP_X;
-  const pivotY = carY + 340 * scale;
+  const pivotY = carY + 460 * scale;
 
   // Slightly bigger — 8.2% of car width
-  const fw = cw * 0.082;
+  const fw = cw * 0.086;
   const fh = fw * (airFreshImg.naturalHeight / airFreshImg.naturalWidth);
 
   // Lower baseline — 575px from car bottom in image space
@@ -255,8 +255,8 @@ function drawAirFreshener() {
   const stringLen = baselineCanvasY - pivotY - fh;
 
   // Pendulum
-  const nudge = Math.sin(performance.now() * 0.00073) * 0.00008
-              + Math.sin(performance.now() * 0.00131) * 0.00004;
+  const nudge = Math.sin(performance.now() * 0.00073) * 0.00055
+              + Math.sin(performance.now() * 0.00131) * 0.00028;
   freshVel += (-FRESH_RESTORE * freshAngle) + nudge;
   freshVel *= FRESH_DAMP;
   freshAngle += freshVel;
@@ -296,21 +296,6 @@ function drawBridge() {
     ctx.fillRect(bx, by + bh * 0.65, bw, bh * 0.06);
   }
 
-  // Subtle left-edge dark fade (keep as before)
-  const leftFog = ctx.createLinearGradient(bx, 0, bx + bw * 0.14, 0);
-  leftFog.addColorStop(0, 'rgba(4,2,12,0.40)');
-  leftFog.addColorStop(1, 'rgba(4,2,12,0)');
-  ctx.fillStyle = leftFog;
-  ctx.fillRect(bx, by, bw * 0.14, bh + 10);
-
-  // Right side: erase to transparent using destination-out
-  ctx.globalCompositeOperation = 'destination-out';
-  const mask = ctx.createLinearGradient(bx + bw * 0.52, 0, bx + bw, 0);
-  mask.addColorStop(0, 'rgba(0,0,0,0)');
-  mask.addColorStop(1, 'rgba(0,0,0,1)');
-  ctx.fillStyle = mask;
-  ctx.fillRect(bx + bw * 0.52, by - 2, bw * 0.50, bh + 14);
-
   ctx.restore();
 }
 
@@ -322,16 +307,16 @@ function drawFog(now) {
 
   // Each cloud puff: { ox, oy, rx, ry, speed, phase, alpha }
   // ox/oy are normalized 0–1 relative to W and VP_Y
+  // Pale moonlit wisps — must be LIGHTER than sky, not darker
   const PUFFS = [
-    { ox: 0.08, oy: 0.88, rx: 0.32, ry: 0.06, spd: 0.018, ph: 0.00, a: 0.11 },
-    { ox: 0.22, oy: 0.76, rx: 0.26, ry: 0.05, spd: 0.011, ph: 1.80, a: 0.08 },
-    { ox: 0.48, oy: 0.92, rx: 0.38, ry: 0.07, spd: 0.024, ph: 0.90, a: 0.10 },
-    { ox: 0.65, oy: 0.82, rx: 0.22, ry: 0.04, spd: 0.015, ph: 2.60, a: 0.07 },
-    { ox: 0.78, oy: 0.95, rx: 0.30, ry: 0.06, spd: 0.009, ph: 0.40, a: 0.09 },
-    { ox: -0.10,oy: 0.85, rx: 0.28, ry: 0.05, spd: 0.020, ph: 3.20, a: 0.08 },
-    // Horizon-level wispy band — spans full width, very low alpha
-    { ox: 0.50, oy: 0.98, rx: 0.85, ry: 0.04, spd: 0.006, ph: 1.10, a: 0.13 },
-    { ox: 0.50, oy: 1.02, rx: 0.90, ry: 0.05, spd: 0.004, ph: 4.00, a: 0.10 },
+    { ox: 0.08, oy: 0.88, rx: 0.32, ry: 0.06, spd: 0.018, ph: 0.00, a: 0.055 },
+    { ox: 0.22, oy: 0.76, rx: 0.26, ry: 0.05, spd: 0.011, ph: 1.80, a: 0.040 },
+    { ox: 0.48, oy: 0.92, rx: 0.38, ry: 0.07, spd: 0.024, ph: 0.90, a: 0.050 },
+    { ox: 0.65, oy: 0.82, rx: 0.22, ry: 0.04, spd: 0.015, ph: 2.60, a: 0.035 },
+    { ox: 0.78, oy: 0.95, rx: 0.30, ry: 0.06, spd: 0.009, ph: 0.40, a: 0.045 },
+    { ox: -0.10,oy: 0.85, rx: 0.28, ry: 0.05, spd: 0.020, ph: 3.20, a: 0.040 },
+    { ox: 0.50, oy: 0.98, rx: 0.85, ry: 0.04, spd: 0.006, ph: 1.10, a: 0.065 },
+    { ox: 0.50, oy: 1.02, rx: 0.90, ry: 0.05, spd: 0.004, ph: 4.00, a: 0.050 },
   ];
 
   ctx.save();
@@ -351,10 +336,11 @@ function drawFog(now) {
     ctx.rect(0, 0, W, VP_Y + 12);
     ctx.clip();
 
+    // Pale cool mist — lavender-white, just brighter than the sky
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
-    g.addColorStop(0,    `rgba(28, 16, 42, ${p.a})`);
-    g.addColorStop(0.45, `rgba(22, 12, 34, ${p.a * 0.55})`);
-    g.addColorStop(1,    'rgba(14, 8, 22, 0)');
+    g.addColorStop(0,    `rgba(195, 185, 220, ${p.a})`);
+    g.addColorStop(0.45, `rgba(170, 160, 205, ${p.a * 0.55})`);
+    g.addColorStop(1,    'rgba(140, 130, 180, 0)');
 
     ctx.save();
     ctx.translate(cx, cy);
@@ -370,10 +356,11 @@ function drawFog(now) {
 
   // A single soft brightness suppression layer over the bridge area —
   // makes it read as haze rather than just darkness
-  const bridgeMist = ctx.createLinearGradient(-W * 0.01, VP_Y * 0.55, W * 0.30, VP_Y);
-  bridgeMist.addColorStop(0,   'rgba(18, 10, 30, 0.18)');
-  bridgeMist.addColorStop(0.5, 'rgba(14, 8, 24, 0.10)');
-  bridgeMist.addColorStop(1,   'rgba(8, 4, 14, 0)');
+  // Pale mist pooling around the bridge base
+  const bridgeMist = ctx.createLinearGradient(-W * 0.01, VP_Y * 0.62, W * 0.32, VP_Y);
+  bridgeMist.addColorStop(0,   'rgba(190, 180, 215, 0.10)');
+  bridgeMist.addColorStop(0.5, 'rgba(170, 160, 200, 0.05)');
+  bridgeMist.addColorStop(1,   'rgba(140, 130, 175, 0)');
   ctx.fillStyle = bridgeMist;
   ctx.beginPath();
   ctx.rect(0, 0, W * 0.32, VP_Y + 8);
@@ -491,15 +478,6 @@ function drawDialogue(now) {
   ctx.save();
   ctx.globalAlpha = dlgAlpha;
 
-  // Box background
-  ctx.fillStyle   = 'rgba(2, 1, 10, 0.72)';
-  ctx.strokeStyle = 'rgba(110, 170, 230, 0.09)';
-  ctx.lineWidth   = 1;
-  ctx.beginPath();
-  ctx.roundRect(bx, by, boxW, boxH, 2);
-  ctx.fill();
-  ctx.stroke();
-
   const displayed = line.text.slice(0, charIndex);
   const tx = bx + 28;
   const ty = by + 16;
@@ -533,20 +511,6 @@ function drawDialogue(now) {
     ctx.shadowBlur  = 5;
     ctx.fillStyle   = '#88b8d8';
     ctx.fillRect(tx + tw + 3, ty + 3, 4, DLG_SIZE - 4);
-  }
-
-  // "click to continue" hint
-  if (showHint) {
-    hintAlpha += (1 - hintAlpha) * 0.06;
-    const pulse = 0.22 + 0.22 * Math.abs(Math.sin(now * 0.0022));
-    ctx.globalAlpha  = dlgAlpha * hintAlpha * pulse;
-    ctx.font         = `${HINT_SIZE}px ${DLG_FONT}`;
-    ctx.textAlign    = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.shadowColor  = 'rgba(110, 175, 230, 0.8)';
-    ctx.shadowBlur   = 7;
-    ctx.fillStyle    = 'rgba(110, 170, 215, 0.95)';
-    ctx.fillText('click to continue', bx + boxW - 14, by + boxH - 10);
   }
 
   ctx.restore();
@@ -595,7 +559,7 @@ function endScene() {
 
 // ─── POST PROCESSING ──────────────────────────────────────────────────────────
 const offscreen = document.createElement('canvas');
-const octx      = offscreen.getContext('2d');
+const octx      = offscreen.getContext('2d', { willReadFrequently: true });
 
 const BAYER8 = [
    0,32, 8,40, 2,34,10,42,
@@ -688,8 +652,8 @@ function frame(now) {
   drawRoad();
   drawReflectors();
   drawHeadlightCones();
-  drawCar();
   drawAirFreshener();
+  drawCar();
   drawDialogue(now);
 
   applyPost();
