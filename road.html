@@ -33,6 +33,25 @@
   <div id="fade"></div>
 </div>
 <script>
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+const Audio = new AudioContext();
+let drivingNode = null;
+
+async function startAudio() {
+  try {
+    const res = await fetch('assets/driving.mp3');
+    const buf = await Audio.decodeAudioData(await res.arrayBuffer());
+    const src  = Audio.createBufferSource();
+    const gain = Audio.createGain();
+    src.buffer = buf; src.loop = true;
+    src.connect(gain); gain.connect(Audio.destination);
+    gain.gain.setValueAtTime(0, Audio.currentTime);
+    gain.gain.linearRampToValueAtTime(0.6, Audio.currentTime + 2.5);
+    src.start();
+    drivingNode = gain;
+  } catch(e) { /* asset missing — silent */ }
+}
+
 // ─── SETUP ────────────────────────────────────────────────────────────────────
 const scene = document.getElementById('scene');
 const ctx   = scene.getContext('2d');
@@ -551,9 +570,13 @@ function advance() {
 
 function endScene() {
   sceneEnding = true; dlgVisible = false; showHint = false;
+  // Fade out driving audio
+  if (drivingNode) {
+    drivingNode.gain.linearRampToValueAtTime(0, Audio.currentTime + 2.5);
+  }
   setTimeout(() => {
     document.getElementById('fade').classList.add('out');
-    setTimeout(() => { /* window.location.href = 'scene_fence.html'; */ }, 3000);
+    setTimeout(() => { window.location.href = 'fence.html'; }, 3000);
   }, 800);
 }
 
@@ -662,7 +685,11 @@ function frame(now) {
 }
 
 // ─── INPUT ────────────────────────────────────────────────────────────────────
-document.getElementById('clicker').addEventListener('click', advance);
+let audioStarted = false;
+document.getElementById('clicker').addEventListener('click', () => {
+  if (!audioStarted) { audioStarted = true; startAudio(); }
+  advance();
+});
 document.addEventListener('keydown', e => { if (e.key===' '||e.key==='Enter') advance(); });
 document.addEventListener('touchend', e => { e.preventDefault(); advance(); }, {passive:false});
 
