@@ -67,10 +67,8 @@ const FRESH_RESTORE = 0.018;
 function depthToY(d)     { return VP_Y + (H - VP_Y) * d; }
 function depthToScale(d) { return 0.04 + d * 0.96; }
 
-// Curved road — single consistent gentle right curve (Night Driver style)
-let curvePhase = 0;
+// Single consistent gentle curve — Night Driver style
 const CURVE_DIR = 0.055;
-
 function roadCurveOffset(d) {
   return CURVE_DIR * W * d * (1 - d) * 3.2;
 }
@@ -88,23 +86,25 @@ function updateRoad(dt) {
   dashOffset = (dashOffset + dt * SPEED) % 1.0;
 }
 
-// ─── REFLECTORS ───────────────────────────────────────────────────────────────
-const REF_COUNT = 14;
+// ─── REFLECTORS — bigger, fewer, more spaced ──────────────────────────────────
+const REF_COUNT = 6;
 
 function drawReflectors() {
   for (let i = 0; i < REF_COUNT; i++) {
     const d = ((i / REF_COUNT) + dashOffset) % 1.0;
-    if (d < 0.04 || d > 0.97) continue;
+    if (d < 0.06 || d > 0.97) continue;
     const scale = depthToScale(d);
     const y     = depthToY(d);
     for (const side of [-1, 1]) {
-      const x     = roadEdgeX(d, side) + side * W * 0.004;
-      const rw    = Math.max(2, 7 * scale);
-      const rh    = Math.max(1, 4 * scale);
-      const alpha = Math.pow(d, 0.45) * 0.88;
+      const x     = roadEdgeX(d, side) + side * W * 0.005;
+      const rw    = Math.max(4, 18 * scale);
+      const rh    = Math.max(2, 10 * scale);
+      const alpha = Math.pow(d, 0.4) * 0.95;
       ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle   = '#ddd8b8';
+      ctx.globalAlpha  = alpha;
+      ctx.shadowColor  = 'rgba(255, 240, 160, 0.9)';
+      ctx.shadowBlur   = 8 * scale;
+      ctx.fillStyle    = '#ffe890';
       ctx.fillRect(x - rw * 0.5, y - rh * 0.5, rw, rh);
       ctx.restore();
     }
@@ -134,7 +134,7 @@ function drawRoad() {
   for (const p of [...rightPts].reverse()) ctx.lineTo(p.x, p.y);
   ctx.closePath(); ctx.fill();
 
-  // Edge lines — very dim
+  // Edge lines
   ctx.save();
   ctx.strokeStyle = 'rgba(150,145,170,0.16)';
   ctx.lineWidth   = 1.5;
@@ -146,9 +146,9 @@ function drawRoad() {
   ctx.stroke();
   ctx.restore();
 
-  // Center dashes — thick, curved, perspective-correct
-  const DASH_LEN = 0.058;
-  const GAP_LEN  = 0.040;
+  // Center dashes — longer dashes, wider gaps, chunkier
+  const DASH_LEN = 0.075;
+  const GAP_LEN  = 0.085;
   const PERIOD   = DASH_LEN + GAP_LEN;
   const NUM_DASH = Math.ceil(1.0 / PERIOD) + 2;
 
@@ -165,11 +165,11 @@ function drawRoad() {
       pts.push({ x: cx, y: depthToY(dd) });
     }
 
-    const alpha = Math.pow(d0, 0.5) * 0.82;
-    const lw    = Math.max(3, depthToScale(d0) * 10); // thick!
+    const alpha = Math.pow(d0, 0.5) * 0.88;
+    const lw    = Math.max(4, depthToScale(d0) * 16);
 
     ctx.save();
-    ctx.strokeStyle = `rgba(198,193,165,${alpha})`;
+    ctx.strokeStyle = `rgba(210,205,175,${alpha})`;
     ctx.lineWidth   = lw;
     ctx.lineCap     = 'round';
     ctx.lineJoin    = 'round';
@@ -180,68 +180,86 @@ function drawRoad() {
   }
 }
 
-// ─── HEADLIGHT CONES ──────────────────────────────────────────────────────────
+// ─── HEADLIGHT GLOW — soft ambient ellipses, no hard polygons ─────────────────
 function drawHeadlightCones() {
-  // Base Y: just above the bottom of screen where headlights sit on the car
-  const baseY  = H * 0.88;
-  const farY   = VP_Y + 4;
-  const farCX  = VP_X + roadCurveOffset(0.05);
+  const nearD  = 0.92;
+  const beamLX = roadEdgeX(nearD, -1) + W * 0.05;
+  const beamRX = roadEdgeX(nearD,  1) - W * 0.05;
+  const baseY  = H * 0.70;
 
-  // Derive headlight X from the road edges at the near camera position (d=0.97)
-  // This keeps them aligned with the actual road width
-  const nearD   = 0.97;
-  const beamLX  = roadEdgeX(nearD, -1);
-  const beamRX  = roadEdgeX(nearD,  1);
-  const beamW   = W * 0.032;   // beam source width
-  const farSprd = W * 0.014;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
 
-  [[beamLX, 1],[beamRX, -1]].forEach(([bx, dir]) => {
-    const tX = farCX + dir * W * 0.025;
+  for (const cx of [beamLX, beamRX]) {
+    const rw = W * 0.42;
+    const rh = H * 0.30;
+
+    // Wide soft outer glow — squashed ellipse via scale
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const g = ctx.createLinearGradient(bx, baseY, tX, farY);
-    g.addColorStop(0,    'rgba(255,252,210,0.15)');
-    g.addColorStop(0.3,  'rgba(240,248,200,0.08)');
-    g.addColorStop(0.7,  'rgba(200,220,200,0.03)');
-    g.addColorStop(1,    'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
+    ctx.translate(cx, baseY);
+    ctx.scale(1, rh / rw);
+    const gOuter = ctx.createRadialGradient(0, 0, 0, 0, 0, rw);
+    gOuter.addColorStop(0,    'rgba(255, 250, 200, 0.12)');
+    gOuter.addColorStop(0.30, 'rgba(240, 245, 175, 0.06)');
+    gOuter.addColorStop(0.65, 'rgba(200, 220, 150, 0.02)');
+    gOuter.addColorStop(1,    'rgba(0, 0, 0, 0)');
     ctx.beginPath();
-    ctx.moveTo(bx - beamW, baseY);
-    ctx.lineTo(bx + beamW, baseY);
-    ctx.lineTo(tX + farSprd, farY);
-    ctx.lineTo(tX - farSprd, farY);
-    ctx.closePath(); ctx.fill();
+    ctx.arc(0, 0, rw, 0, Math.PI * 2);
+    ctx.fillStyle = gOuter;
+    ctx.fill();
     ctx.restore();
-  });
+
+    // Tight bright hotspot
+    const g2 = ctx.createRadialGradient(cx, baseY, 0, cx, baseY, W * 0.13);
+    g2.addColorStop(0,    'rgba(255, 255, 215, 0.22)');
+    g2.addColorStop(0.35, 'rgba(255, 252, 190, 0.09)');
+    g2.addColorStop(1,    'rgba(0, 0, 0, 0)');
+    ctx.beginPath();
+    ctx.arc(cx, baseY, W * 0.13, 0, Math.PI * 2);
+    ctx.fillStyle = g2;
+    ctx.fill();
+  }
+
+  // Shared centre road-wash between the beams
+  const roadGlow = ctx.createRadialGradient(VP_X, H * 0.82, 0, VP_X, H * 0.82, W * 0.42);
+  roadGlow.addColorStop(0,   'rgba(210, 215, 160, 0.07)');
+  roadGlow.addColorStop(0.5, 'rgba(180, 195, 130, 0.025)');
+  roadGlow.addColorStop(1,   'rgba(0, 0, 0, 0)');
+  ctx.beginPath();
+  ctx.rect(0, VP_Y, W, H - VP_Y);
+  ctx.fillStyle = roadGlow;
+  ctx.fill();
+
+  ctx.restore();
 }
 
-// ─── CAR PNG — full screen width & height ────────────────────────────────────
+// ─── CAR PNG — full width, bottom-aligned ─────────────────────────────────────
 function drawCar() {
   if (carImg.naturalWidth <= 0) return;
   const cw = W;
   const ch = cw * (carImg.naturalHeight / carImg.naturalWidth);
-  // Align bottom of car to bottom of screen
   ctx.drawImage(carImg, VP_X - cw * 0.5, H - ch, cw, ch);
 }
 
-// ─── AIR FRESHENER ────────────────────────────────────────────────────────────
+// ─── AIR FRESHENER — lower + bigger ──────────────────────────────────────────
 function drawAirFreshener() {
   if (airFreshImg.naturalWidth <= 0 || carImg.naturalWidth <= 0) return;
 
   const cw    = W;
   const ch    = cw * (carImg.naturalHeight / carImg.naturalWidth);
-  const carY  = H - ch;   // matches drawCar
+  const carY  = H - ch;
   const scale = cw / carImg.naturalWidth;
 
-  // Pivot: rearview mirror area — horizontally centred, near top of windshield
+  // Pivot lower — 240px down in image space (was 175)
   const pivotX = VP_X;
-  const pivotY = carY + 175 * scale;
+  const pivotY = carY + 240 * scale;
 
-  // Bottom of freshener = 675px from car image bottom (in image space)
-  const baselineCanvasY = carY + (carImg.naturalHeight - 675) * scale;
-
-  const fw = cw * 0.048;
+  // Bigger — 7% of car width (was 4.8%)
+  const fw = cw * 0.07;
   const fh = fw * (airFreshImg.naturalHeight / airFreshImg.naturalWidth);
+
+  // Lower baseline — 575px from car bottom in image space (was 675)
+  const baselineCanvasY = carY + (carImg.naturalHeight - 575) * scale;
   const stringLen = baselineCanvasY - pivotY - fh;
 
   // Pendulum
@@ -268,13 +286,16 @@ function drawAirFreshener() {
   ctx.restore();
 }
 
-// ─── BRIDGE ───────────────────────────────────────────────────────────────────
+// ─── BRIDGE — right side fades to transparent ─────────────────────────────────
 function drawBridge() {
   const bw = W * 0.28;
   const bh = VP_Y * 0.82;
   const bx = -W * 0.01;
-  const by = VP_Y - bh * 0.90 + VP_Y * 0.05;  // shifted down 5%
+  const by = VP_Y - bh * 0.90 + VP_Y * 0.05;
+
   ctx.save();
+
+  // Draw bridge image at full opacity into a clipping region
   ctx.globalAlpha = 0.80;
   if (bridgeImg.naturalWidth > 0) {
     ctx.drawImage(bridgeImg, bx, by, bw, bh);
@@ -282,14 +303,22 @@ function drawBridge() {
     ctx.fillStyle = '#06040e';
     ctx.fillRect(bx, by + bh * 0.65, bw, bh * 0.06);
   }
-  // Fade: left edge stays, right side dissolves into darkness (into the distance)
-  const fog = ctx.createLinearGradient(bx, 0, bx + bw, 0);
-  fog.addColorStop(0,    'rgba(4,2,12,0.45)');
-  fog.addColorStop(0.12, 'rgba(4,2,12,0)');
-  fog.addColorStop(0.55, 'rgba(4,2,12,0)');
-  fog.addColorStop(1,    'rgba(4,2,12,1)');
-  ctx.fillStyle = fog;
-  ctx.fillRect(bx, by, bw, bh + 10);
+
+  // Subtle left-edge dark fade (keep as before)
+  const leftFog = ctx.createLinearGradient(bx, 0, bx + bw * 0.14, 0);
+  leftFog.addColorStop(0, 'rgba(4,2,12,0.40)');
+  leftFog.addColorStop(1, 'rgba(4,2,12,0)');
+  ctx.fillStyle = leftFog;
+  ctx.fillRect(bx, by, bw * 0.14, bh + 10);
+
+  // Right side: erase to transparent using destination-out
+  ctx.globalCompositeOperation = 'destination-out';
+  const mask = ctx.createLinearGradient(bx + bw * 0.52, 0, bx + bw, 0);
+  mask.addColorStop(0, 'rgba(0,0,0,0)');
+  mask.addColorStop(1, 'rgba(0,0,0,1)');
+  ctx.fillStyle = mask;
+  ctx.fillRect(bx + bw * 0.52, by - 2, bw * 0.50, bh + 14);
+
   ctx.restore();
 }
 
@@ -347,7 +376,7 @@ function drawTrees() {
   ctx.restore();
 }
 
-// ─── DIALOGUE — drawn on scene canvas so it pixelates with everything ─────────
+// ─── DIALOGUE ─────────────────────────────────────────────────────────────────
 const LINES = [
   { text: "I didn't plan on coming out this late.", italic: false },
   { text: "But the road was empty.", italic: false },
@@ -399,7 +428,6 @@ function drawDialogue(now) {
   pctx.save();
   pctx.globalAlpha = dlgAlpha;
 
-  // Subtle dark box
   pctx.fillStyle   = 'rgba(2, 1, 8, 0.72)';
   pctx.strokeStyle = 'rgba(120, 180, 240, 0.10)';
   pctx.lineWidth   = 1;
@@ -417,7 +445,6 @@ function drawDialogue(now) {
   pctx.textBaseline = 'top';
 
   if (line.italic) {
-    // Dreamy blue-white for italic lines
     pctx.shadowColor = 'rgba(140, 195, 255, 0.9)';
     pctx.shadowBlur  = 22;
     pctx.fillStyle   = 'rgba(160, 205, 245, 0.5)';
@@ -426,7 +453,6 @@ function drawDialogue(now) {
     pctx.fillStyle   = 'rgba(200, 225, 255, 0.85)';
     pctx.fillText(displayed, tx, ty);
   } else {
-    // Warm phosphor glow for normal lines
     pctx.shadowColor = 'rgba(160, 220, 255, 0.85)';
     pctx.shadowBlur  = 18;
     pctx.fillStyle   = 'rgba(180, 220, 240, 0.45)';
@@ -436,7 +462,6 @@ function drawDialogue(now) {
     pctx.fillText(displayed, tx, ty);
   }
 
-  // Cursor
   if (cursorOn) {
     const tw = pctx.measureText(displayed).width;
     pctx.shadowColor = 'rgba(140, 200, 255, 0.9)';
@@ -445,7 +470,6 @@ function drawDialogue(now) {
     pctx.fillRect(tx + tw + 2, ty + 2, 6, DLG_SIZE - 3);
   }
 
-  // Hint
   if (showHint) {
     hintAlpha += (1 - hintAlpha) * 0.06;
     const pulse = 0.28 + 0.28 * Math.abs(Math.sin(now * 0.0022));
@@ -502,7 +526,7 @@ function endScene() {
   }, 800);
 }
 
-// ─── POST PROCESSING — exact skip_a_stone values ──────────────────────────────
+// ─── POST PROCESSING ──────────────────────────────────────────────────────────
 const offscreen = document.createElement('canvas');
 const octx      = offscreen.getContext('2d');
 
@@ -517,10 +541,10 @@ const BAYER8 = [
   63,31,55,23,61,29,53,21,
 ].map(v => v / 64);
 
-const PIX    = 3;   // pixel size — exact skip_a_stone
-const CSTEPS = 24;  // colour depth steps
-const DSTR   = 0.018;  // dither strength
-const ABER   = 0.006;  // chromatic aberration
+const PIX    = 3;
+const CSTEPS = 24;
+const DSTR   = 0.018;
+const ABER   = 0.006;
 
 let postImageData = null;
 
@@ -532,7 +556,7 @@ function applyPost() {
   }
 
   octx.clearRect(0, 0, pw, ph);
-  octx.drawImage(scene, 0, 0, pw, ph);  // scene canvas has EVERYTHING incl. dialogue
+  octx.drawImage(scene, 0, 0, pw, ph);
 
   const src = octx.getImageData(0, 0, pw, ph);
   const sd  = src.data;
@@ -568,14 +592,12 @@ function applyPost() {
   pctx.drawImage(offscreen, 0, 0, W, H);
   pctx.restore();
 
-  // Scanlines — exact skip_a_stone
   pctx.save();
   pctx.globalAlpha = 0.10;
   pctx.fillStyle   = '#000';
   for (let y = 0; y < H; y += PIX) pctx.fillRect(0, y + PIX - 1, W, 1);
   pctx.restore();
 
-  // Vignette — exact skip_a_stone
   const vig = pctx.createRadialGradient(W*0.5, H*0.65, H*0.05, W*0.5, H*0.65, H*0.85);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
   vig.addColorStop(1, 'rgba(0,0,0,0.58)');
@@ -603,7 +625,7 @@ function frame(now) {
 
   applyPost();
 
-  drawDialogue(now);   // ← after pixelation, on post canvas with phosphor glow
+  drawDialogue(now);
 
   requestAnimationFrame(frame);
 }
