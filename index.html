@@ -252,7 +252,8 @@ function drawBridge(alpha) {
   const bh = bw / aspect;
   ctx.save();
   ctx.globalAlpha = alpha * 0.82;
-  ctx.drawImage(bridgeImg, 0, HORIZON_Y - bh * 0.86, bw, bh);
+  // Center so HORIZON_Y bisects the image — reflection lines up with water surface
+  ctx.drawImage(bridgeImg, 0, HORIZON_Y - bh * 0.5, bw, bh);
   ctx.restore();
 }
 
