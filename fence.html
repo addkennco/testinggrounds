@@ -33,6 +33,24 @@
   <div id="fade"></div>
 </div>
 <script>
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+let fenceAudioCtx = null;
+async function startFenceAudio() {
+  try {
+    fenceAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const res = await fetch('assets/crickets_frogs.mp3');
+    const buf = await fenceAudioCtx.decodeAudioData(await res.arrayBuffer());
+    const src = fenceAudioCtx.createBufferSource();
+    const gain = fenceAudioCtx.createGain();
+    src.buffer = buf; src.loop = true;
+    src.connect(gain); gain.connect(fenceAudioCtx.destination);
+    gain.gain.setValueAtTime(0, fenceAudioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.45, fenceAudioCtx.currentTime + 3);
+    src.start();
+  } catch(e) {}
+}
+let fenceAudioStarted = false;
+
 // ─── SETUP ────────────────────────────────────────────────────────────────────
 const scene = document.getElementById('scene');
 const ctx   = scene.getContext('2d');
@@ -451,7 +469,7 @@ function endScene() {
   sceneEnding = true;
   document.getElementById('fade').classList.add('out');
   setTimeout(() => {
-    // window.location.href = 'scene3_lake.html';
+    window.location.href = 'lake.html';
   }, 3000);
 }
 
@@ -573,6 +591,7 @@ function frame(now) {
 
 // ─── INPUT ────────────────────────────────────────────────────────────────────
 document.getElementById('clicker').addEventListener('click', e => {
+  if (!fenceAudioStarted) { fenceAudioStarted = true; startFenceAudio(); }
   handleClick(e.clientX, e.clientY);
 });
 document.getElementById('clicker').addEventListener('mousemove', e => {
