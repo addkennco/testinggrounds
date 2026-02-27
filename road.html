@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Scene 1 — The Drive</title>
+<title>Road</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
 <style>
@@ -182,12 +182,17 @@ function drawRoad() {
 
 // ─── HEADLIGHT CONES ──────────────────────────────────────────────────────────
 function drawHeadlightCones() {
-  const baseY   = H * 0.91;
-  const farY    = VP_Y + 4;
-  const farCX   = VP_X + roadCurveOffset(0.05);
-  const beamLX  = VP_X - W * 0.062;
-  const beamRX  = VP_X + W * 0.062;
-  const beamW   = W * 0.048;
+  // Base Y: just above the bottom of screen where headlights sit on the car
+  const baseY  = H * 0.88;
+  const farY   = VP_Y + 4;
+  const farCX  = VP_X + roadCurveOffset(0.05);
+
+  // Derive headlight X from the road edges at the near camera position (d=0.97)
+  // This keeps them aligned with the actual road width
+  const nearD   = 0.97;
+  const beamLX  = roadEdgeX(nearD, -1);
+  const beamRX  = roadEdgeX(nearD,  1);
+  const beamW   = W * 0.032;   // beam source width
   const farSprd = W * 0.014;
 
   [[beamLX, 1],[beamRX, -1]].forEach(([bx, dir]) => {
@@ -201,21 +206,22 @@ function drawHeadlightCones() {
     g.addColorStop(1,    'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.moveTo(bx - beamW,    baseY);
-    ctx.lineTo(bx + beamW,    baseY);
-    ctx.lineTo(tX + farSprd,  farY);
-    ctx.lineTo(tX - farSprd,  farY);
+    ctx.moveTo(bx - beamW, baseY);
+    ctx.lineTo(bx + beamW, baseY);
+    ctx.lineTo(tX + farSprd, farY);
+    ctx.lineTo(tX - farSprd, farY);
     ctx.closePath(); ctx.fill();
     ctx.restore();
   });
 }
 
-// ─── CAR PNG — full screen width ─────────────────────────────────────────────
+// ─── CAR PNG — full screen width & height ────────────────────────────────────
 function drawCar() {
   if (carImg.naturalWidth <= 0) return;
   const cw = W;
   const ch = cw * (carImg.naturalHeight / carImg.naturalWidth);
-  ctx.drawImage(carImg, VP_X - cw * 0.5, H - ch * 0.80, cw, ch);
+  // Align bottom of car to bottom of screen
+  ctx.drawImage(carImg, VP_X - cw * 0.5, H - ch, cw, ch);
 }
 
 // ─── AIR FRESHENER ────────────────────────────────────────────────────────────
@@ -224,7 +230,7 @@ function drawAirFreshener() {
 
   const cw    = W;
   const ch    = cw * (carImg.naturalHeight / carImg.naturalWidth);
-  const carY  = H - ch * 0.80;
+  const carY  = H - ch;   // matches drawCar
   const scale = cw / carImg.naturalWidth;
 
   // Pivot: rearview mirror area — horizontally centred, near top of windshield
@@ -267,7 +273,7 @@ function drawBridge() {
   const bw = W * 0.28;
   const bh = VP_Y * 0.82;
   const bx = -W * 0.01;
-  const by = VP_Y - bh * 0.90;
+  const by = VP_Y - bh * 0.90 + VP_Y * 0.05;  // shifted down 5%
   ctx.save();
   ctx.globalAlpha = 0.80;
   if (bridgeImg.naturalWidth > 0) {
@@ -276,11 +282,12 @@ function drawBridge() {
     ctx.fillStyle = '#06040e';
     ctx.fillRect(bx, by + bh * 0.65, bw, bh * 0.06);
   }
+  // Fade: left edge stays, right side dissolves into darkness (into the distance)
   const fog = ctx.createLinearGradient(bx, 0, bx + bw, 0);
-  fog.addColorStop(0,    'rgba(4,2,12,0.55)');
-  fog.addColorStop(0.10, 'rgba(4,2,12,0)');
-  fog.addColorStop(0.80, 'rgba(4,2,12,0)');
-  fog.addColorStop(1,    'rgba(4,2,12,0.88)');
+  fog.addColorStop(0,    'rgba(4,2,12,0.45)');
+  fog.addColorStop(0.12, 'rgba(4,2,12,0)');
+  fog.addColorStop(0.55, 'rgba(4,2,12,0)');
+  fog.addColorStop(1,    'rgba(4,2,12,1)');
   ctx.fillStyle = fog;
   ctx.fillRect(bx, by, bw, bh + 10);
   ctx.restore();
