@@ -96,6 +96,10 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// ─── ASSETS ───────────────────────────────────────────────────────────────────
+const bridgeImg = new Image();
+bridgeImg.src   = 'assets/bridge.png';
+
 // ─── TIMING & PHASES ──────────────────────────────────────────────────────────
 // All timed in ms from scene start
 const T = {
@@ -240,6 +244,18 @@ class TitleRipple {
 }
 let ripples = [];
 
+// ─── BRIDGE ───────────────────────────────────────────────────────────────────
+function drawBridge(alpha) {
+  if (bridgeImg.naturalWidth <= 0) return;
+  const aspect = bridgeImg.naturalWidth / bridgeImg.naturalHeight;
+  const bw = W;
+  const bh = bw / aspect;
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.82;
+  ctx.drawImage(bridgeImg, 0, HORIZON_Y - bh * 0.86, bw, bh);
+  ctx.restore();
+}
+
 // ─── DRAW SCENE ───────────────────────────────────────────────────────────────
 function drawScene(now) {
   if (!sceneStart) return;
@@ -288,6 +304,9 @@ function drawScene(now) {
 
   // Treeline
   drawTrees(skyAlpha);
+
+  // Bridge — full width, anchored at horizon
+  drawBridge(skyAlpha);
 
   // Horizon line — thin bright seam
   ctx.save();
