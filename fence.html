@@ -314,28 +314,16 @@ function drawDialogue(now) {
   }
 
   // ── NORMAL LINE ──
-  const { bx, by, boxW, boxH } = getDlgBox();
-
-  // Box bg
   ctx.save();
-  ctx.fillStyle   = 'rgba(2,1,10,0.70)';
-  ctx.strokeStyle = 'rgba(110,170,230,0.09)';
-  ctx.lineWidth   = 1;
-  ctx.beginPath();
-  ctx.roundRect(bx, by, boxW, boxH, 2);
-  ctx.fill();
-  ctx.stroke();
-
   const displayed = line.text.slice(0, charIndex);
-  const tx = bx + 26;
-  const ty = by + 18;
+  const tx = W * 0.09;
+  const ty = H * 0.80;
 
   ctx.font         = `${line.italic ? 'italic ' : ''}${FONT_SIZE}px ${FONT}`;
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
 
   if (line.italic) {
-    // Italic lines get the cooler blue glow (internal monologue / memory)
     ctx.shadowColor = 'rgba(140,200,255,0.95)';
     ctx.shadowBlur  = 20;
     ctx.fillStyle   = 'rgba(155,205,245,0.45)';
@@ -360,20 +348,6 @@ function drawDialogue(now) {
     ctx.shadowColor = 'rgba(130,190,240,0.8)';
     ctx.fillStyle   = '#88b8d8';
     ctx.fillRect(tx + tw + 3, ty + 2, 4, FONT_SIZE - 2);
-  }
-
-  // "Click to continue" hint — pulsing bottom-right of box
-  if (showHint) {
-    hintAlpha += (1 - hintAlpha) * 0.055;
-    const pulse = 0.22 + 0.22 * Math.abs(Math.sin(now * 0.0021));
-    ctx.globalAlpha  = hintAlpha * pulse;
-    ctx.font         = `${FONT_SMALL}px ${FONT}`;
-    ctx.textAlign    = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.shadowColor  = 'rgba(110,175,230,0.8)';
-    ctx.shadowBlur   = 7;
-    ctx.fillStyle    = 'rgba(110,170,215,0.95)';
-    ctx.fillText('click to continue', bx + boxW - 12, by + boxH - 10);
   }
 
   ctx.restore();
