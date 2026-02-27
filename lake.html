@@ -32,6 +32,62 @@
   <div id="fade" class="in"></div>
 </div>
 <script>
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
+const Audio = {
+  ctx: null,
+  nodes: {},
+  init() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  },
+  async load(key, src) {
+    try {
+      const res = await fetch(src);
+      const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+      this.nodes[key] = buf;
+    } catch(e) { /* asset missing — silent */ }
+  },
+  play(key, { loop=false, volume=1, fadeIn=0, offset=0 }={}) {
+    if (!this.ctx || !this.nodes[key]) return null;
+    const src  = this.ctx.createBufferSource();
+    const gain = this.ctx.createGain();
+    src.buffer = this.nodes[key];
+    src.loop   = loop;
+    src.connect(gain); gain.connect(this.ctx.destination);
+    if (fadeIn > 0) { gain.gain.setValueAtTime(0, this.ctx.currentTime); gain.gain.linearRampToValueAtTime(volume, this.ctx.currentTime + fadeIn); }
+    else gain.gain.setValueAtTime(volume, this.ctx.currentTime);
+    src.start(0, offset);
+    return { src, gain };
+  },
+  fade(node, toVol, dur) {
+    if (!node) return;
+    node.gain.linearRampToValueAtTime(toVol, this.ctx.currentTime + dur);
+    if (toVol <= 0) setTimeout(()=>{ try{ node.src.stop(); }catch(e){} }, dur*1000+100);
+  },
+};
+
+let ambientNode = null;   // crickets/frogs loop
+let musicNode   = null;   // optional background music
+
+async function initAudio() {
+  Audio.init();
+  await Promise.all([
+    Audio.load('ambient', 'assets/crickets_frogs.mp3'),
+    Audio.load('stone',   'assets/stone_skip.mp3'),
+    Audio.load('splash',  'assets/splash.mp3'),
+    Audio.load('crinkle', 'assets/paper_crinkle.mp3'),
+    Audio.load('photo',   'assets/photo_rustle.mp3'),
+  ]);
+  // Start ambient loop
+  ambientNode = Audio.play('ambient', { loop: true, volume: 0, fadeIn: 0 });
+  if (ambientNode) Audio.fade(ambientNode, 0.55, 4);
+}
+
+function playStoneSkip() { Audio.play('stone',  { volume: 0.5 + Math.random()*0.3 }); }
+function playSplash()    { Audio.play('splash', { volume: 0.6 }); }
+function playCrinkle()   { Audio.play('crinkle',{ volume: 0.7 }); }
+function playPhotoSound(){ Audio.play('photo',  { volume: 0.5 }); }
+
 // ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
 const scene = document.getElementById('scene');
 const ctx   = scene.getContext('2d');
@@ -211,7 +267,7 @@ function drawTrees() {
 function drawCattails(now) {
   if (cattailsImg.naturalWidth <= 0) return;
   const aspect = cattailsImg.naturalWidth / cattailsImg.naturalHeight;
-  const ch = HORIZON_Y * 0.72;
+  const ch = HORIZON_Y * 0.54;  // was 0.72, now 25% smaller
   const cw = ch * aspect;
   // Left cluster
   ctx.save();
@@ -353,7 +409,6 @@ function drawBottomShore(now) {
     }
     ctx.stroke(); ctx.restore();
   }
-  drawShoes(now);
 }
 
 function drawShoes(now) {
@@ -577,12 +632,14 @@ function updateStone(now,dt) {
         lp.wobble=1.0;
         ripples.push(new Ripple(skip.x,skip.y,true));
         flashes.push(new ImpactFlash(skip.x,skip.y));
+        playSplash();
         stone.phase='done'; stoneState='idle';
         onThrowDone(skipCount); return;
       }
     }
     ripples.push(new Ripple(skip.x,skip.y));
     flashes.push(new ImpactFlash(skip.x,skip.y));
+    playStoneSkip();
     skipCount++;
     if (stone.skipIndex>=stone.maxSkips) {
       stone.phase='sinking'; stone.sinkT=0;
@@ -594,7 +651,7 @@ function updateStone(now,dt) {
   }
   if (stone.phase==='sinking') {
     stone.sinkT+=dt/720; stone.y+=dt*0.045;
-    if (stone.sinkT>=1) { stone.phase='done'; stoneState='idle'; onThrowDone(skipCount); }
+    if (stone.sinkT>=1) { stone.phase='done'; stoneState='idle'; playSplash(); onThrowDone(skipCount); }
   }
 }
 
@@ -694,6 +751,7 @@ function openHeldItem(type) {
   HELD.y       = HELD.startY;
   HELD.tilt    = type === 'letter' ? -0.028 : 0.035;
   if (type === 'letter') {
+    playCrinkle();
     HELD.poemIndex = Math.floor(Math.random() * POEMS.length);
     HELD.lineIndex = 0;
     HELD.phase     = 'poem';
@@ -953,9 +1011,9 @@ function endDialogue() {
 }
 
 function getChoiceRects() {
-  const cw=Math.min(W*0.62,580), ch=DLG_SIZE+28, cx=W*0.5;
-  const baseY = H*0.72;
-  return choiceOpts.map((text,i)=>({bx:cx-cw*0.5, by:baseY+i*(ch+16), bw:cw, bh:ch, text}));
+  const ch=DLG_SIZE+24, tx=W*0.09;
+  const baseY = H*0.76;
+  return choiceOpts.map((text,i)=>({bx:tx, by:baseY+i*(ch+12), bw:W*0.82, bh:ch, text}));
 }
 
 function drawDialogue(now) {
@@ -971,32 +1029,21 @@ function drawDialogue(now) {
   ctx.globalAlpha = dlgAlpha;
 
   if (choiceMode) {
-    // Header
-    ctx.font=`italic ${DLG_SIZE*0.7|0}px ${DLG_FONT}`;
-    ctx.textAlign='center'; ctx.textBaseline='middle';
-    ctx.shadowColor='rgba(140,200,255,0.6)'; ctx.shadowBlur=14;
-    ctx.fillStyle='rgba(160,210,250,0.45)';
-    ctx.fillText('choose a thought', W*0.5, H*0.68);
-
     const rects=getChoiceRects();
     for (let i=0;i<rects.length;i++) {
       const {bx,by,bw,bh,text}=rects[i], hover=i===choiceHover;
       ctx.save();
-      ctx.fillStyle  =hover?'rgba(140,190,255,0.10)':'rgba(4,2,12,0.55)';
-      ctx.strokeStyle=hover?'rgba(140,190,255,0.40)':'rgba(100,150,210,0.12)';
-      ctx.lineWidth=1;
-      ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,2); ctx.fill(); ctx.stroke();
       ctx.font=`${DLG_SIZE}px ${DLG_FONT}`;
-      ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.shadowColor=hover?'rgba(160,210,255,0.9)':'rgba(100,160,220,0.5)';
-      ctx.shadowBlur=hover?14:5;
+      ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.shadowColor=hover?'rgba(160,210,255,0.95)':'rgba(100,160,220,0.5)';
+      ctx.shadowBlur=hover?18:5;
       ctx.fillStyle=hover?'#e8f4ff':'#7aaccc';
-      ctx.fillText(text,bx+bw*0.5,by+bh*0.5);
+      ctx.fillText(text, bx, by+bh*0.5);
       ctx.restore();
     }
   } else {
     const line=dlgLines[dlgIndex];
-    if (!line) { ctx.restore(); return; }
+    if (!line || !line.text) { ctx.restore(); return; }
     const displayed=line.text.slice(0,dlgChar);
     const tx=W*0.09, ty=H*0.80;
     ctx.font=`${line.italic?'italic ':''}${DLG_SIZE}px ${DLG_FONT}`;
@@ -1075,7 +1122,7 @@ function onThrowDone(skips) {
   } else if (ss === S.S8_LAST) {
     // Final throw done → ending
     ss=S.ENDING;
-    fadeOut(()=>{ /* window.location.href = 'end.html'; */ });
+    fadeOut(()=>{ window.location.href = 'end.html'; });
   }
 }
 
@@ -1260,6 +1307,8 @@ document.getElementById('clicker').addEventListener('mousemove', e=>{
 });
 
 document.getElementById('clicker').addEventListener('click', e=>{
+  // Unlock audio on first interaction
+  if (!Audio.ctx) initAudio();
   const mx=e.clientX, my=e.clientY;
 
   // Return to car arrow
