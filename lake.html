@@ -7,21 +7,52 @@
 <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Gochi+Hand&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; cursor: crosshair; }
-  #wrap { position: relative; width: 100vw; height: 100vh; }
+
+  /* ── LAYER 1: viewport root — pagebkg.png fills the bars/corners ── */
+  body {
+    background: #000 url('assets/pagebkg.png') center center / cover no-repeat;
+    overflow: hidden;
+    width: 100vw; height: 100vh;
+    cursor: crosshair;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── LAYER 2: 16:9 game container — canvases live here ── */
+  #wrap {
+    position: relative;
+    width:  min(100vw, 177.78vh);
+    height: min(100vh, 56.25vw);
+    flex-shrink: 0;
+    background: #000;
+    overflow: hidden;
+    cursor: crosshair;
+  }
+
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   #post {
     pointer-events: none;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
-  #clicker { position: absolute; inset: 0; z-index: 5; cursor: pointer; }
+  #clicker { position: absolute; inset: 0; z-index: 5; cursor: crosshair; }
   #fade {
     position: absolute; inset: 0; background: #000;
     pointer-events: none; opacity: 0; z-index: 10;
   }
   #fade.in  { opacity: 1; }
   #fade.out { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
+
+  /* ── LAYER 3: overlay — fixed over everything, pointer-events:none ── */
+  #overlay {
+    position: fixed;
+    inset: 0;
+    width: 100vw; height: 100vh;
+    background: url('assets/overlay.png') center center / 100% 100% no-repeat;
+    pointer-events: none;
+    z-index: 9999;
+  }
 </style>
 </head>
 <body>
@@ -31,6 +62,8 @@
   <div id="clicker"></div>
   <div id="fade" class="in"></div>
 </div>
+<!-- overlay sits outside #wrap so it covers the full viewport -->
+<div id="overlay"></div>
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
 const Audio = {
@@ -94,13 +127,14 @@ const ctx   = scene.getContext('2d');
 const post  = document.getElementById('post');
 const pctx  = post.getContext('2d');
 
-const SHORE_H = 72;
+const SHORE_H = 110;
 let W, H, HORIZON_Y, WATER_H;
 let _stars = null;
 
 function resize() {
-  W = window.innerWidth;
-  H = window.innerHeight;
+  const wrap = document.getElementById('wrap');
+  W = wrap.clientWidth;
+  H = wrap.clientHeight;
   scene.width = post.width  = W;
   scene.height= post.height = H;
   HORIZON_Y = Math.round(H * 0.46);
@@ -393,11 +427,11 @@ function drawBottomShore(now) {
 
   const shoreY = H-SHORE_H*0.72;
   const waves=[
-    {offset:0,   f1:4.2,f2:9.1,a1:3.2,a2:1.4,s1:0.55,s2:0.82,lw:2.2,al:0.22,bl:10},
-    {offset:6,   f1:3.8,f2:8.3,a1:2.8,a2:1.1,s1:0.42,s2:0.95,lw:1.4,al:0.14,bl:6 },
-    {offset:11,  f1:5.1,f2:10.2,a1:2.2,a2:0.9,s1:0.68,s2:0.72,lw:1.0,al:0.09,bl:4 },
-    {offset:17,  f1:3.2,f2:7.8,a1:3.6,a2:1.6,s1:0.35,s2:1.10,lw:3.0,al:0.17,bl:14},
-    {offset:24,  f1:4.7,f2:9.6,a1:1.8,a2:0.8,s1:0.78,s2:0.60,lw:0.8,al:0.07,bl:3 },
+    {offset:0,   f1:4.2,f2:9.1,a1:3.2,a2:1.4,s1:0.55,s2:0.82,lw:2.8,al:0.35,bl:12},
+    {offset:6,   f1:3.8,f2:8.3,a1:2.8,a2:1.1,s1:0.42,s2:0.95,lw:1.8,al:0.24,bl:8 },
+    {offset:11,  f1:5.1,f2:10.2,a1:2.2,a2:0.9,s1:0.68,s2:0.72,lw:1.2,al:0.16,bl:5 },
+    {offset:17,  f1:3.2,f2:7.8,a1:3.6,a2:1.6,s1:0.35,s2:1.10,lw:3.6,al:0.28,bl:16},
+    {offset:24,  f1:4.7,f2:9.6,a1:1.8,a2:0.8,s1:0.78,s2:0.60,lw:1.0,al:0.13,bl:4 },
   ];
   for (const w of waves) {
     ctx.save();
@@ -543,8 +577,8 @@ class Firefly {
     ctx.restore();
   }
 }
-let fireflies = Array.from({length:28}, ()=>new Firefly());
-let fireflyAlpha = 0; // fades in when scene requires
+let fireflies = [];   // populated after first resize() so W/H/HORIZON_Y are valid
+let fireflyAlpha = 0;
 
 function drawFireflies(now) {
   if (!firefliesActive()) { fireflyAlpha = Math.max(0, fireflyAlpha - 0.006); }
@@ -880,18 +914,22 @@ function drawHeldItem(now) {
   // Analysis text — drawn OUTSIDE the letter transform (normal dialogue position)
   if (HELD.type === 'letter') drawLetterAnalysis(now);
 
-  // "put it away" prompt — only shown when not mid-animation
+  // "put it away" / "click to continue" prompt — shown when not mid-animation
   if (!HELD.animating && !HELD.dismissing) {
-    const pulse = 0.18 + 0.18*Math.abs(Math.sin(now*0.0018));
+    const pulse  = 0.22 + 0.22*Math.abs(Math.sin(now*0.0018));
+    const promptY = H - SHORE_H * 0.35;
     ctx.save();
-    ctx.globalAlpha = pulse;
-    ctx.font         = `12px 'Silkscreen', monospace`;
+    ctx.globalAlpha  = pulse;
+    ctx.font         = `16px 'Silkscreen', monospace`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.shadowColor  = 'rgba(140,180,240,0.7)';
-    ctx.shadowBlur   = 8;
-    ctx.fillStyle    = 'rgba(140,180,220,0.9)';
-    ctx.fillText('put it away', W*0.5, H - 18);
+    ctx.shadowColor  = 'rgba(140,180,240,0.85)';
+    ctx.shadowBlur   = 14;
+    ctx.fillStyle    = 'rgba(130,170,215,0.50)';
+    ctx.fillText('put it away', W*0.5, promptY);
+    ctx.shadowBlur   = 5;
+    ctx.fillStyle    = 'rgba(170,205,240,0.95)';
+    ctx.fillText('put it away', W*0.5, promptY);
     ctx.restore();
   }
 }
@@ -967,8 +1005,8 @@ function drawLetterAnalysis(now) {
   const displayed = currentLine.slice(0, HELD.dlgChar);
 
   const tx     = W * 0.09;
-  const ty     = H * 0.82;   // fixed position — always the same row
-  const afSize = 26;
+  const ty     = dlgY();   // same anchor as regular dialogue
+  const afSize = 28;
 
   ctx.save();
   ctx.font         = `${afSize}px 'Silkscreen', monospace`;
@@ -1022,10 +1060,10 @@ function advanceLetter() {
       HELD.phase   = 'analysis';
       HELD.dlgLine = 0;
       HELD.dlgChar = 0;
-      // Animate letter partially off bottom — paper drops, analysis area clears
+      // Animate letter mostly off bottom — paper edge peeks up, analysis area fully clear
       const itemH = H * 0.72;
       HELD.startY    = HELD.y;
-      HELD.targetY   = H - itemH * 0.28;  // bottom ~28% of paper peeking up
+      HELD.targetY   = H - itemH * 0.18;  // only top 18% of paper peeking up
       HELD.animT     = 0;
       HELD.animating = true;
       HELD.dismissing= false;
@@ -1068,9 +1106,11 @@ function startLetterTyping() {
 
 // ─── DIALOGUE SYSTEM ──────────────────────────────────────────────────────────
 // All text drawn on ctx (scene canvas) so dither applies to it
-const DLG_SIZE  = 26;
-const HINT_SIZE = 12;
+const DLG_SIZE  = 28;
 const DLG_FONT  = `'Silkscreen', monospace`;
+
+// Dialogue Y: anchored in lower quarter, never drifts into the water
+function dlgY() { return Math.max(H * 0.72, H - 220); }
 
 let dlgLines    = [];
 let dlgIndex    = 0;
@@ -1080,8 +1120,6 @@ let dlgReady    = false;
 let dlgTimer    = null;
 let dlgAlpha    = 0;
 let dlgVisible  = false;
-let showHint    = false;
-let hintAlpha   = 0;
 let choiceMode  = false;
 let choiceOpts  = [];
 let choiceHover = -1;
@@ -1100,8 +1138,6 @@ function startDialogue(lines, callback) {
   dlgAlpha    = 0;
   choiceMode  = false;
   choiceOpts  = [];
-  showHint    = false;
-  hintAlpha   = 0;
   dlgCallback = callback;
   typeNextLine();
 }
@@ -1110,9 +1146,9 @@ function typeNextLine() {
   const line = dlgLines[dlgIndex];
   if (!line) { endDialogue(); return; }
   if (line.choice) { choiceMode=true; choiceOpts=line.options; return; }
-  dlgChar=0; dlgTyping=true; dlgReady=false; showHint=false;
+  dlgChar=0; dlgTyping=true; dlgReady=false;
   function tick() {
-    if (dlgChar>=line.text.length) { dlgTyping=false; dlgReady=true; showHint=true; return; }
+    if (dlgChar>=line.text.length) { dlgTyping=false; dlgReady=true; return; }
     const ch=line.text[dlgChar++];
     const del=38+(ch===','?200:0)+(ch==='.'?300:0)+(ch==='\u2026'?440:0);
     dlgTimer=setTimeout(tick,del);
@@ -1125,27 +1161,28 @@ function advanceDlg() {
   if (dlgTyping) {
     clearTimeout(dlgTimer);
     dlgChar=dlgLines[dlgIndex].text.length;
-    dlgTyping=false; dlgReady=true; showHint=true;
+    dlgTyping=false; dlgReady=true;
     return;
   }
   if (dlgReady) { dlgIndex++; typeNextLine(); }
 }
 
+function endDialogue() {
+  dlgVisible=false; choiceMode=false;
+  if (dlgCallback) { const cb=dlgCallback; dlgCallback=null; setTimeout(cb,600); }
+}
+
 function pickChoice(i) {
   if (!choiceMode) return;
   choiceMode=false; choiceOpts=[];
-  // Choices are atmospheric — always advance
-  endDialogue();
-}
-
-function endDialogue() {
-  dlgVisible=false; showHint=false; choiceMode=false;
-  if (dlgCallback) { const cb=dlgCallback; dlgCallback=null; setTimeout(cb,600); }
+  // Advance past the choice node — continue to any remaining lines
+  dlgIndex++;
+  typeNextLine();
 }
 
 function getChoiceRects() {
   const ch=DLG_SIZE+24, tx=W*0.09;
-  const baseY = H*0.76;
+  const baseY = dlgY();
   return choiceOpts.map((text,i)=>({bx:tx, by:baseY+i*(ch+12), bw:W*0.82, bh:ch, text}));
 }
 
@@ -1178,16 +1215,16 @@ function drawDialogue(now) {
     const line=dlgLines[dlgIndex];
     if (!line || !line.text) { ctx.restore(); return; }
     const displayed=line.text.slice(0,dlgChar);
-    const tx=W*0.09, ty=H*0.80;
+    const tx=W*0.09, ty=dlgY();
     ctx.font=`${line.italic?'italic ':''}${DLG_SIZE}px ${DLG_FONT}`;
     ctx.textAlign='left'; ctx.textBaseline='top';
     if (line.italic) {
       ctx.shadowColor='rgba(140,200,255,0.95)'; ctx.shadowBlur=22;
       ctx.fillStyle='rgba(155,205,245,0.45)'; ctx.fillText(displayed,tx,ty);
-      ctx.shadowBlur=8; ctx.fillStyle='rgba(195,225,255,0.92)'; ctx.fillText(displayed,tx,ty);
+      ctx.shadowBlur=9; ctx.fillStyle='rgba(195,225,255,0.92)'; ctx.fillText(displayed,tx,ty);
     } else {
-      ctx.shadowColor='rgba(150,215,255,0.65)'; ctx.shadowBlur=14;
-      ctx.fillStyle='rgba(175,215,240,0.38)'; ctx.fillText(displayed,tx,ty);
+      ctx.shadowColor='rgba(150,215,255,0.70)'; ctx.shadowBlur=16;
+      ctx.fillStyle='rgba(175,215,240,0.42)'; ctx.fillText(displayed,tx,ty);
       ctx.shadowBlur=5; ctx.fillStyle='#bcdcf0'; ctx.fillText(displayed,tx,ty);
     }
     if (dlgReady && cursorOn) {
@@ -1195,6 +1232,19 @@ function drawDialogue(now) {
       ctx.shadowColor='rgba(130,190,240,0.8)'; ctx.shadowBlur=5;
       ctx.fillStyle='#88b8d8';
       ctx.fillRect(tx+tw+3, ty+3, 4, DLG_SIZE-4);
+    }
+    // "click to continue" hint
+    if (dlgReady) {
+      const pulse = 0.20 + 0.20*Math.abs(Math.sin(now*0.0016));
+      const hintY = ty + DLG_SIZE + 14;
+      ctx.globalAlpha = dlgAlpha * pulse;
+      ctx.font = `14px ${DLG_FONT}`;
+      ctx.shadowColor = 'rgba(130,180,240,0.80)'; ctx.shadowBlur = 10;
+      ctx.fillStyle   = 'rgba(130,180,220,0.60)';
+      ctx.fillText('click to continue', tx, hintY);
+      ctx.shadowBlur  = 4;
+      ctx.fillStyle   = 'rgba(160,200,240,0.90)';
+      ctx.fillText('click to continue', tx, hintY);
     }
   }
   ctx.restore();
@@ -1264,6 +1314,14 @@ function onThrowDone(skips) {
     startDialogue([
       { text: "And I would pretend not to hear you.", italic:false },
     ], () => { ss=S.S7_PRE; startS7Pre(); });
+  } else if (ss === S.S8_THROW) {
+    // Show text after first throw, then let player throw freely
+    if (throwCount === 1) {
+      startDialogue([
+        { text: "I don't know why this place reminds me of you, out of all places.", italic:false },
+        { text: "But it does.", italic:false },
+      ], () => { /* text done — player keeps throwing freely */ });
+    }
   } else if (ss === S.S8_LAST) {
     // Final throw done → ending
     ss=S.ENDING;
@@ -1321,9 +1379,12 @@ function startS7Pre() {
 }
 
 function onS8LastThrow() {
-  // After "one more for good luck" the player throws once, then we end
   ss=S.S8_LAST;
   throwCount=0;
+  arrowActive=false;
+  startDialogue([
+    { text: "\"One more for good luck,\" you'd say.", italic:false },
+  ], () => { /* player now throws the final stone */ });
 }
 
 // ─── POST PROCESSING ──────────────────────────────────────────────────────────
@@ -1401,11 +1462,11 @@ function frame(now) {
   // Background: sky, trees, cattails
   drawSky(now);
 
-  // Bridge (left-aligned, behind everything)
-  drawBridge();
-
-  // Water layers
+  // Water layers first so bridge reflection sits on top
   drawWater(now);
+
+  // Bridge drawn AFTER water — its built-in reflection lands on the surface
+  drawBridge();
 
   // Bottom shore + shoes
   drawBottomShore(now);
@@ -1493,8 +1554,10 @@ document.addEventListener('touchend', e=>{
 },{passive:false});
 
 // ─── START ────────────────────────────────────────────────────────────────────
-resize();
+resize();              // must come first — sets W, H, HORIZON_Y
 initLilyPads();
+// Fireflies initialized AFTER resize() so W/H/HORIZON_Y are valid
+fireflies = Array.from({length:28}, ()=>new Firefly());
 requestAnimationFrame(frame);
 
 // Fade in then begin scene 3
