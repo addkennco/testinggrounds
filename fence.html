@@ -272,13 +272,13 @@ function getDlgBox() {
 // ─── CHOICE CARDS ─────────────────────────────────────────────────────────────
 function getChoiceRects() {
   const opts = LINES[LINES.length - 1].options;
-  const cw   = Math.min(W * 0.60, 560);
-  const ch   = FONT_SIZE + 26;
-  const cx   = W * 0.5;
+  const ch   = FONT_SIZE + 24;
+  const tx   = W * 0.09;
+  const baseY = H * 0.76;
   return opts.map((text, i) => ({
-    bx:   cx - cw * 0.5,
-    by:   H * 0.64 + i * (ch + 18),
-    bw:   cw,
+    bx:   tx,
+    by:   baseY + i * (ch + 12),
+    bw:   W * 0.82,
     bh:   ch,
     text,
   }));
@@ -297,39 +297,17 @@ function drawDialogue(now) {
   // ── CHOICE SCREEN ──
   if (line.choice) {
     const rects = getChoiceRects();
-
-    // Soft header above choices
-    ctx.save();
-    ctx.font         = `italic ${FONT_SIZE}px ${FONT}`;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor  = 'rgba(140,195,255,0.7)';
-    ctx.shadowBlur   = 16;
-    ctx.fillStyle    = 'rgba(170,210,250,0.55)';
-    ctx.restore();
-
     for (let i = 0; i < rects.length; i++) {
       const { bx, by, bw, bh, text } = rects[i];
       const hover = i === choiceHover;
-
       ctx.save();
-      // Box
-      ctx.fillStyle   = hover ? 'rgba(140,190,255,0.10)' : 'rgba(4,2,12,0.65)';
-      ctx.strokeStyle = hover ? 'rgba(140,190,255,0.45)' : 'rgba(100,150,210,0.15)';
-      ctx.lineWidth   = 1;
-      ctx.beginPath();
-      ctx.roundRect(bx, by, bw, bh, 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // Text
       ctx.font         = `${FONT_SIZE}px ${FONT}`;
-      ctx.textAlign    = 'center';
+      ctx.textAlign    = 'left';
       ctx.textBaseline = 'middle';
-      ctx.shadowColor  = hover ? 'rgba(160,210,255,0.9)' : 'rgba(100,160,220,0.5)';
-      ctx.shadowBlur   = hover ? 14 : 5;
+      ctx.shadowColor  = hover ? 'rgba(160,210,255,0.95)' : 'rgba(100,160,220,0.5)';
+      ctx.shadowBlur   = hover ? 18 : 5;
       ctx.fillStyle    = hover ? '#e8f4ff' : '#7aaccc';
-      ctx.fillText(text, bx + bw * 0.5, by + bh * 0.5);
+      ctx.fillText(text, bx, by + bh * 0.5);
       ctx.restore();
     }
     return;
