@@ -896,6 +896,24 @@ function drawHeldItem(now) {
   }
 }
 
+// Word-wrap a string to fit maxW pixels, returns array of lines
+function wrapText(ctx, text, maxW) {
+  const words = text.split(' ');
+  const out = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxW && line) {
+      out.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) out.push(line);
+  return out;
+}
+
 function drawLetter(now, w, h) {
   // Paper
   if (!HELD.paperCache || HELD.paperCache.width !== Math.round(w)) {
@@ -910,54 +928,67 @@ function drawLetter(now, w, h) {
   ctx.fillRect(4, 4, w, h);
   ctx.restore();
 
-  // Poem text (Gochi Hand) — big enough to survive pixelization
+  // Poem text (Gochi Hand) — word-wrapped to fit paper
   const poem = POEMS[HELD.poemIndex];
   const lines = HELD.phase === 'poem' ? poem.slice(0, HELD.lineIndex+1) : poem;
-  const fontSize = Math.max(36, Math.round(h * 0.072));
+  const fontSize = Math.max(32, Math.round(h * 0.065));
   ctx.font = `${fontSize}px 'Gochi Hand', cursive`;
   ctx.fillStyle = '#2a1e10';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
 
+  const padX    = w * 0.08;
+  const maxW    = w * 0.84;   // text must stay within this width
+  const lineH   = fontSize * 1.5;
   let ty = h * 0.08;
-  const lineH = fontSize * 1.5;
+  let rowIdx = 0;
+
   for (let i=0; i<lines.length; i++) {
-    const wobble = Math.sin(i * 2.4 + now*0.0003) * 1.4;
-    ctx.save();
-    ctx.globalAlpha = (HELD.phase==='analysis') ? 0.45 : 1.0;
-    ctx.fillText(lines[i], w*0.08, ty + wobble);
-    ctx.restore();
-    ty += lineH;
+    const wrapped = wrapText(ctx, lines[i], maxW);
+    for (const wline of wrapped) {
+      const wobble = Math.sin(rowIdx * 2.4 + now*0.0003) * 1.2;
+      ctx.save();
+      ctx.globalAlpha = (HELD.phase==='analysis') ? 0.35 : 1.0;
+      ctx.fillText(wline, padX, ty + wobble);
+      ctx.restore();
+      ty += lineH;
+      rowIdx++;
+    }
   }
   // Analysis text is drawn OUTSIDE the letter via drawLetterAnalysis() in drawHeldItem
 }
 
-// Analysis text drawn over the scene (not on the paper) — same style as regular dialogue
+// Analysis text: one line at a time, drawn at fixed position below the paper
 function drawLetterAnalysis(now) {
   if (HELD.phase !== 'analysis') return;
-  const aLines = LETTER_ANALYSIS.slice(0, HELD.dlgLine+1);
-  const tx = W*0.09, ty = H*0.78;
+  const currentLine = LETTER_ANALYSIS[HELD.dlgLine];
+  if (!currentLine) return;
+  const displayed = currentLine.slice(0, HELD.dlgChar);
+
+  const tx     = W * 0.09;
+  const ty     = H * 0.82;   // fixed position — always the same row
   const afSize = 26;
-  const alh = afSize * 1.85;
+
   ctx.save();
-  ctx.font = `${afSize}px 'Silkscreen', monospace`;
-  ctx.textAlign = 'left';
+  ctx.font         = `${afSize}px 'Silkscreen', monospace`;
+  ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
-  for (let i=0; i<aLines.length; i++) {
-    const txt = i < HELD.dlgLine ? aLines[i] : aLines[i].slice(0, HELD.dlgChar);
-    ctx.shadowColor = 'rgba(150,215,255,0.65)'; ctx.shadowBlur = 14;
-    ctx.fillStyle = 'rgba(175,215,240,0.38)'; ctx.fillText(txt, tx, ty + i*alh);
-    ctx.shadowBlur = 5; ctx.fillStyle = '#bcdcf0'; ctx.fillText(txt, tx, ty + i*alh);
-  }
-  // Blinking cursor on last line
+
+  // Double-draw for glow (same as regular dialogue)
+  ctx.shadowColor = 'rgba(150,215,255,0.65)'; ctx.shadowBlur = 14;
+  ctx.fillStyle   = 'rgba(175,215,240,0.38)';
+  ctx.fillText(displayed, tx, ty);
+  ctx.shadowBlur  = 5;
+  ctx.fillStyle   = '#bcdcf0';
+  ctx.fillText(displayed, tx, ty);
+
+  // Blinking cursor
   if (HELD.dlgReady && cursorOn) {
-    const lastTxt = aLines[aLines.length-1].slice(0, HELD.dlgChar);
-    const tw = ctx.measureText(lastTxt).width;
-    const ly = ty + (aLines.length-1)*alh;
-    ctx.shadowColor='rgba(130,190,240,0.8)'; ctx.shadowBlur=5;
-    ctx.fillStyle='#88b8d8';
-    ctx.fillRect(tx+tw+3, ly+3, 4, afSize-4);
+    const tw = ctx.measureText(displayed).width;
+    ctx.shadowColor = 'rgba(130,190,240,0.8)'; ctx.shadowBlur = 5;
+    ctx.fillStyle   = '#88b8d8';
+    ctx.fillRect(tx + tw + 3, ty + 3, 4, afSize - 4);
   }
   ctx.restore();
 }
@@ -987,11 +1018,23 @@ function advanceLetter() {
     if (HELD.lineIndex < POEMS[HELD.poemIndex].length - 1) {
       HELD.lineIndex++;
     } else {
-      // Switch to analysis
+      // Switch to analysis — slide letter down so analysis text has clear space
       HELD.phase   = 'analysis';
       HELD.dlgLine = 0;
       HELD.dlgChar = 0;
-      startLetterTyping();
+      // Animate letter partially off bottom — paper drops, analysis area clears
+      const itemH = H * 0.72;
+      HELD.startY    = HELD.y;
+      HELD.targetY   = H - itemH * 0.28;  // bottom ~28% of paper peeking up
+      HELD.animT     = 0;
+      HELD.animating = true;
+      HELD.dismissing= false;
+      // Wait for slide to finish before starting typing
+      const waitTyping = () => {
+        if (HELD.animating) { setTimeout(waitTyping, 60); return; }
+        startLetterTyping();
+      };
+      waitTyping();
     }
   } else if (HELD.phase === 'analysis') {
     if (HELD.dlgTyping) {
