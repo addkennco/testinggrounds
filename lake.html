@@ -280,11 +280,12 @@ function drawCattails(now) {
 function drawBridge() {
   if (bridgeImg.naturalWidth <= 0) return;
   const aspect = bridgeImg.naturalWidth / bridgeImg.naturalHeight;
-  const bh = HORIZON_Y * 0.80;
-  const bw = bh * aspect;
+  // Full width — scale height to match
+  const bw = W;
+  const bh = bw / aspect;
   ctx.save();
   ctx.globalAlpha = 0.85;
-  ctx.drawImage(bridgeImg, -W*0.02, HORIZON_Y - bh * 0.88, bw, bh);
+  ctx.drawImage(bridgeImg, 0, HORIZON_Y - bh * 0.88, bw, bh);
   ctx.restore();
 }
 
@@ -409,26 +410,90 @@ function drawBottomShore(now) {
     }
     ctx.stroke(); ctx.restore();
   }
+
+  // Foam wash — faint band at shore edge
+  const foamGrad = ctx.createLinearGradient(0, H-SHORE_H*0.72-4, 0, H-SHORE_H*0.72+18);
+  foamGrad.addColorStop(0,   'rgba(160,220,255,0)');
+  foamGrad.addColorStop(0.4, 'rgba(160,220,255,0.06)');
+  foamGrad.addColorStop(1,   'rgba(160,220,255,0)');
+  ctx.fillStyle = foamGrad;
+  ctx.fillRect(0, H-SHORE_H*0.72-4, W, 22);
+
+  drawShoes(now);
 }
 
+// ─── SHOES (lifted from skip_a_stone.html) ────────────────────────────────────
 function drawShoes(now) {
-  const t=now*0.001, sway=Math.sin(t*0.4)*1.2, baseY=H-4, cx=W/2, gap=38;
-  drawOneShoe(ctx,cx-gap,baseY,-1,sway*0.6);
-  drawOneShoe(ctx,cx+gap,baseY, 1,sway*0.4);
+  const t    = now * 0.001;
+  const sway = Math.sin(t * 0.4) * 1.2;
+  const baseY = H - 4;
+  const cx    = W / 2;
+  const gap   = 38;
+  drawOneShoe(ctx, cx - gap, baseY, -1, sway * 0.6);
+  drawOneShoe(ctx, cx + gap, baseY,  1, sway * 0.4);
 }
-function drawOneShoe(ctx,cx,baseY,dir,sway) {
-  ctx.save(); ctx.translate(cx+sway,baseY);
-  const shoeW=52, toeX=dir*shoeW*0.52, heelX=-dir*shoeW*0.38;
-  ctx.beginPath(); ctx.ellipse(toeX*0.3,2,shoeW*0.42,4,0,0,Math.PI*2);
-  ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fill();
-  const upperGrad=ctx.createLinearGradient(heelX,-shoeW,toeX,-6);
-  upperGrad.addColorStop(0,'#2e2438'); upperGrad.addColorStop(0.5,'#221a2e'); upperGrad.addColorStop(1,'#1a1225');
-  ctx.beginPath(); ctx.moveTo(heelX,-5);
-  ctx.bezierCurveTo(heelX,-shoeW*0.9,heelX*0.3,-shoeW,0,-shoeW);
-  ctx.bezierCurveTo(toeX*0.5,-shoeW,toeX*0.85,-shoeW*0.7,toeX,-14);
-  ctx.bezierCurveTo(toeX+dir*2,-10,toeX-dir*4,-8,toeX-dir*8,-7);
-  ctx.bezierCurveTo(0,-6,heelX*0.6,-5,heelX,-5); ctx.closePath();
-  ctx.fillStyle=upperGrad; ctx.fill();
+
+function drawOneShoe(ctx, cx, baseY, dir, sway) {
+  ctx.save();
+  ctx.translate(cx + sway, baseY);
+
+  const shoeW = 52, shoeH = 26;
+  const toeX  = dir * shoeW * 0.52;
+  const heelX = -dir * shoeW * 0.38;
+
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(toeX * 0.3, 2, shoeW * 0.42, 4, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fill();
+
+  // Sole
+  ctx.beginPath();
+  ctx.moveTo(heelX, 0);
+  ctx.bezierCurveTo(heelX, -4, toeX * 0.6, -3, toeX, -7);
+  ctx.bezierCurveTo(toeX + dir*4, -10, toeX + dir*2, -14, toeX - dir*4, -14);
+  ctx.bezierCurveTo(0, -14, heelX * 0.6, -8, heelX, -5);
+  ctx.closePath();
+  ctx.fillStyle = '#1a1510';
+  ctx.fill();
+
+  // Upper body
+  const upperGrad = ctx.createLinearGradient(heelX, -shoeH, toeX, -6);
+  upperGrad.addColorStop(0,   '#2e2438');
+  upperGrad.addColorStop(0.5, '#221a2e');
+  upperGrad.addColorStop(1,   '#1a1225');
+  ctx.beginPath();
+  ctx.moveTo(heelX, -5);
+  ctx.bezierCurveTo(heelX, -shoeH * 0.9, heelX * 0.3, -shoeH, 0, -shoeH);
+  ctx.bezierCurveTo(toeX * 0.5, -shoeH, toeX * 0.85, -shoeH * 0.7, toeX, -14);
+  ctx.bezierCurveTo(toeX + dir*2, -10, toeX - dir*4, -8, toeX - dir*8, -7);
+  ctx.bezierCurveTo(0, -6, heelX * 0.6, -5, heelX, -5);
+  ctx.closePath();
+  ctx.fillStyle = upperGrad;
+  ctx.fill();
+
+  // Tongue
+  ctx.beginPath();
+  ctx.ellipse(heelX * 0.2, -shoeH + 2, shoeW * 0.22, shoeH * 0.22, 0.1, 0, Math.PI * 2);
+  ctx.fillStyle = '#3a2a48';
+  ctx.fill();
+
+  // Lace eyelets (three small X marks)
+  ctx.strokeStyle = 'rgba(200,185,220,0.55)';
+  ctx.lineWidth   = 1;
+  for (let i = 0; i < 3; i++) {
+    const lx = heelX * 0.5 + dir * i * 7;
+    const ly = -shoeH * 0.55 - i * 2.5;
+    ctx.beginPath(); ctx.moveTo(lx - 5, ly - 2); ctx.lineTo(lx + 5, ly + 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lx + 5, ly - 2); ctx.lineTo(lx - 5, ly + 2); ctx.stroke();
+  }
+
+  // Toe highlight
+  ctx.beginPath();
+  ctx.ellipse(toeX - dir*8, -11, 8, 3, dir * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fill();
+
   ctx.restore();
 }
 
@@ -437,11 +502,10 @@ class Firefly {
   constructor() { this.reset(true); }
   reset(initial=false) {
     this.x = Math.random() * W;
-    this.y = initial
-      ? HORIZON_Y + Math.random() * (H - SHORE_H - HORIZON_Y) * 0.75
-      : HORIZON_Y + 10 + Math.random() * (H - SHORE_H - HORIZON_Y - 20) * 0.8;
-    this.vx = (Math.random()-0.5)*0.25;
-    this.vy = -0.06 - Math.random()*0.12;
+    const waterH = H - SHORE_H - HORIZON_Y;
+    this.y = HORIZON_Y + 10 + Math.random() * waterH * 0.82;
+    this.vx = (Math.random()-0.5)*0.18;
+    this.vy = -0.04 - Math.random()*0.07;  // slower upward drift
     this.wobble = Math.random()*Math.PI*2;
     this.wobbleSpeed = 0.018 + Math.random()*0.025;
     this.wobbleAmp   = 0.8 + Math.random()*1.8;
@@ -455,7 +519,10 @@ class Firefly {
     this.wobble += this.wobbleSpeed;
     this.x += this.vx + Math.sin(this.wobble)*this.wobbleAmp*0.04;
     this.y += this.vy;
-    if (this.y < HORIZON_Y || this.x < 0 || this.x > W) this.reset();
+    // Keep in water zone (between horizon and shore), wrapping gently
+    const waterBot = H - SHORE_H - 10;
+    const waterTop = HORIZON_Y + 8;
+    if (this.y < waterTop || this.y > waterBot || this.x < -20 || this.x > W+20) this.reset();
   }
   draw(now) {
     const blink = 0.25 + 0.75*Math.abs(Math.sin(now*0.001*this.blinkSpeed+this.blinkPhase));
@@ -463,11 +530,16 @@ class Firefly {
     const [r,g,b] = this.green ? [190,255,100] : [255,245,140];
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = a * 0.55;
-    ctx.shadowColor = `rgb(${r},${g},${b})`;
-    ctx.shadowBlur  = 10;
-    ctx.fillStyle   = `rgba(${r},${g},${b},1)`;
-    ctx.beginPath(); ctx.arc(this.x,this.y,this.size,0,Math.PI*2); ctx.fill();
+    ctx.globalAlpha = a * 0.65;
+    // Soft radial gradient glow — no hard edge
+    const glowR = this.size * 7;
+    const grd = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowR);
+    grd.addColorStop(0,   `rgba(${r},${g},${b},0.95)`);
+    grd.addColorStop(0.18,`rgba(${r},${g},${b},0.55)`);
+    grd.addColorStop(0.45,`rgba(${r},${g},${b},0.18)`);
+    grd.addColorStop(1,   `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(this.x, this.y, glowR, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
 }
@@ -475,15 +547,16 @@ let fireflies = Array.from({length:28}, ()=>new Firefly());
 let fireflyAlpha = 0; // fades in when scene requires
 
 function drawFireflies(now) {
-  if (!firefliesActive()) { fireflyAlpha = Math.max(0, fireflyAlpha - 0.008); }
-  else                    { fireflyAlpha = Math.min(1, fireflyAlpha + 0.004); }
+  if (!firefliesActive()) { fireflyAlpha = Math.max(0, fireflyAlpha - 0.006); }
+  else                    { fireflyAlpha = Math.min(1, fireflyAlpha + 0.003); }
   if (fireflyAlpha <= 0) return;
   for (const f of fireflies) {
     f.update();
-    ctx.save();
-    ctx.globalAlpha = fireflyAlpha;
+    // Bake scene-level alpha into the firefly's own alpha so 'lighter' composite works
+    const savedAlpha = f.alpha;
+    f.alpha *= fireflyAlpha;
     f.draw(now);
-    ctx.restore();
+    f.alpha = savedAlpha;
   }
 }
 
@@ -804,6 +877,9 @@ function drawHeldItem(now) {
 
   ctx.restore();
 
+  // Analysis text — drawn OUTSIDE the letter transform (normal dialogue position)
+  if (HELD.type === 'letter') drawLetterAnalysis(now);
+
   // "put it away" prompt — only shown when not mid-animation
   if (!HELD.animating && !HELD.dismissing) {
     const pulse = 0.18 + 0.18*Math.abs(Math.sin(now*0.0018));
@@ -834,42 +910,56 @@ function drawLetter(now, w, h) {
   ctx.fillRect(4, 4, w, h);
   ctx.restore();
 
-  // Poem text (Gochi Hand)
+  // Poem text (Gochi Hand) — big enough to survive pixelization
   const poem = POEMS[HELD.poemIndex];
   const lines = HELD.phase === 'poem' ? poem.slice(0, HELD.lineIndex+1) : poem;
-  const fontSize = 22;
+  const fontSize = Math.max(36, Math.round(h * 0.072));
   ctx.font = `${fontSize}px 'Gochi Hand', cursive`;
   ctx.fillStyle = '#2a1e10';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
 
-  let ty = h * 0.10;
-  const lineH = fontSize * 1.55;
+  let ty = h * 0.08;
+  const lineH = fontSize * 1.5;
   for (let i=0; i<lines.length; i++) {
-    // Per-line wobble: tiny vertical offset from Gochi Hand's natural irregularity
-    const wobble = Math.sin(i * 2.4 + now*0.0003) * 1.2;
+    const wobble = Math.sin(i * 2.4 + now*0.0003) * 1.4;
     ctx.save();
-    ctx.globalAlpha = i < HELD.lineIndex ? 1.0 : (HELD.phase==='poem' ? 1.0 : 0.85);
-    ctx.fillText(lines[i], w*0.09, ty + wobble);
+    ctx.globalAlpha = (HELD.phase==='analysis') ? 0.45 : 1.0;
+    ctx.fillText(lines[i], w*0.08, ty + wobble);
     ctx.restore();
     ty += lineH;
   }
+  // Analysis text is drawn OUTSIDE the letter via drawLetterAnalysis() in drawHeldItem
+}
 
-  // Analysis text (Silkscreen, smaller)
-  if (HELD.phase === 'analysis') {
-    const aLines = LETTER_ANALYSIS.slice(0, HELD.dlgLine+1);
-    const afSize = 13;
-    ctx.font = `${afSize}px 'Silkscreen', monospace`;
-    ctx.fillStyle = '#3a2814';
-    let ay = h * 0.58;
-    const alh = afSize * 1.8;
-    for (let i=0; i<aLines.length; i++) {
-      const txt = i < HELD.dlgLine ? aLines[i] : aLines[i].slice(0, HELD.dlgChar);
-      ctx.fillText(txt, w*0.09, ay);
-      ay += alh;
-    }
+// Analysis text drawn over the scene (not on the paper) — same style as regular dialogue
+function drawLetterAnalysis(now) {
+  if (HELD.phase !== 'analysis') return;
+  const aLines = LETTER_ANALYSIS.slice(0, HELD.dlgLine+1);
+  const tx = W*0.09, ty = H*0.78;
+  const afSize = 26;
+  const alh = afSize * 1.85;
+  ctx.save();
+  ctx.font = `${afSize}px 'Silkscreen', monospace`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  for (let i=0; i<aLines.length; i++) {
+    const txt = i < HELD.dlgLine ? aLines[i] : aLines[i].slice(0, HELD.dlgChar);
+    ctx.shadowColor = 'rgba(150,215,255,0.65)'; ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(175,215,240,0.38)'; ctx.fillText(txt, tx, ty + i*alh);
+    ctx.shadowBlur = 5; ctx.fillStyle = '#bcdcf0'; ctx.fillText(txt, tx, ty + i*alh);
   }
+  // Blinking cursor on last line
+  if (HELD.dlgReady && cursorOn) {
+    const lastTxt = aLines[aLines.length-1].slice(0, HELD.dlgChar);
+    const tw = ctx.measureText(lastTxt).width;
+    const ly = ty + (aLines.length-1)*alh;
+    ctx.shadowColor='rgba(130,190,240,0.8)'; ctx.shadowBlur=5;
+    ctx.fillStyle='#88b8d8';
+    ctx.fillRect(tx+tw+3, ly+3, 4, afSize-4);
+  }
+  ctx.restore();
 }
 
 function drawPhoto(now, w, h) {
@@ -1073,20 +1163,32 @@ let arrowActive = false;
 
 function drawReturnArrow(now) {
   if (!arrowActive) return;
-  arrowAlpha = Math.min(1, arrowAlpha+0.008);
-  const pulse=0.55+0.45*Math.abs(Math.sin(now*0.0014));
+  arrowAlpha = Math.min(1, arrowAlpha+0.006);
+  const pulse = 0.5 + 0.5*Math.abs(Math.sin(now*0.0014));
+  const alpha = arrowAlpha * pulse;
+  // Big downward-pointing triangle centered at bottom-center of water area
+  const cx = W * 0.5;
+  const cy = H - SHORE_H - 28;
+  const size = 28;  // half-width of triangle
   ctx.save();
-  ctx.globalAlpha=arrowAlpha*pulse;
-  ctx.font=`12px ${DLG_FONT}`;
-  ctx.textAlign='right'; ctx.textBaseline='middle';
-  ctx.shadowColor='rgba(200,180,140,0.8)'; ctx.shadowBlur=10;
-  ctx.fillStyle='rgba(210,195,155,0.9)';
-  ctx.fillText('return to car  ›', W-32, H-SHORE_H-22);
+  ctx.globalAlpha = alpha;
+  ctx.shadowColor = 'rgba(200,190,150,0.9)';
+  ctx.shadowBlur  = 18;
+  ctx.fillStyle   = 'rgba(215,205,165,0.92)';
+  ctx.beginPath();
+  ctx.moveTo(cx - size, cy - size*0.8);
+  ctx.lineTo(cx + size, cy - size*0.8);
+  ctx.lineTo(cx,        cy + size*0.5);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }
 
 function arrowHitTest(mx,my) {
-  return arrowActive && mx>W-180 && mx<W-20 && my>H-SHORE_H-40 && my<H-SHORE_H-4;
+  if (!arrowActive) return false;
+  const cx = W*0.5, cy = H-SHORE_H-28, size=28;
+  // Loose bounding box hit test
+  return mx>cx-size-10 && mx<cx+size+10 && my>cy-size*0.8-10 && my<cy+size*0.5+10;
 }
 
 // ─── SCENE CALLBACKS ──────────────────────────────────────────────────────────
