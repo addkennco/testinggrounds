@@ -7,7 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; cursor: none; }
+  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; cursor: default; }
   #wrap { position: relative; width: 100vw; height: 100vh; }
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   #post {
@@ -15,7 +15,7 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
-  #clicker { position: absolute; inset: 0; z-index: 5; cursor: none; }
+  #clicker { position: absolute; inset: 0; z-index: 5; }
   #fade {
     position: absolute; inset: 0; background: #000;
     pointer-events: none; opacity: 1;
@@ -54,11 +54,10 @@ window.addEventListener('resize', resize);
 resize();
 
 // ─── ASSETS ───────────────────────────────────────────────────────────────────
-const carImg        = new Image(); carImg.src        = 'assets/car.png';
-const airFreshImg   = new Image(); airFreshImg.src   = 'assets/airfreshener.png';
-const bridgeImg     = new Image(); bridgeImg.src     = 'assets/bridge.png';
+const carImg      = new Image(); carImg.src      = 'car.png';
+const airFreshImg = new Image(); airFreshImg.src = 'airfreshener.png';
+const bridgeImg   = new Image(); bridgeImg.src   = 'bridge.png';
 
-// Air freshener swing state
 let freshAngle = 0;
 let freshVel   = 0;
 const FRESH_DAMP    = 0.97;
@@ -69,13 +68,10 @@ function depthToY(d)     { return VP_Y + (H - VP_Y) * d; }
 function depthToScale(d) { return 0.04 + d * 0.96; }
 
 // Curved road — single consistent gentle right curve (Night Driver style)
-// curvePhase still scrolls for the dashes/reflectors depth illusion but doesn't affect shape
 let curvePhase = 0;
-const CURVE_DIR = 0.055;  // positive = curves right, negative = left. Tweak freely.
+const CURVE_DIR = 0.055;
 
 function roadCurveOffset(d) {
-  // Quadratic: near camera = 0, far = 0, gentle bow in between
-  // This gives a single smooth arc rather than a wiggle
   return CURVE_DIR * W * d * (1 - d) * 3.2;
 }
 
@@ -214,59 +210,45 @@ function drawHeadlightCones() {
   });
 }
 
-// ─── CAR PNG ──────────────────────────────────────────────────────────────────
+// ─── CAR PNG — full screen width ─────────────────────────────────────────────
 function drawCar() {
   if (carImg.naturalWidth <= 0) return;
-  const cw   = W * 0.36;
-  const ch   = cw * (carImg.naturalHeight / carImg.naturalWidth);
-  const cx   = VP_X - cw * 0.5;
-  const cy   = H - ch * 0.80;
-  ctx.drawImage(carImg, cx, cy, cw, ch);
+  const cw = W;
+  const ch = cw * (carImg.naturalHeight / carImg.naturalWidth);
+  ctx.drawImage(carImg, VP_X - cw * 0.5, H - ch * 0.80, cw, ch);
 }
 
 // ─── AIR FRESHENER ────────────────────────────────────────────────────────────
-// Pivot: rearview mirror area — horizontally centered, vertically near top of car
-// Bottom of freshener sits 675px (car-image-space) above the car image bottom.
-function drawAirFreshener(dt) {
+function drawAirFreshener() {
   if (airFreshImg.naturalWidth <= 0 || carImg.naturalWidth <= 0) return;
 
-  const cw   = W * 0.36;
-  const ch   = cw * (carImg.naturalHeight / carImg.naturalWidth);
-  const carY = H - ch * 0.80;   // top-left y of car on canvas
-
-  // Scale factor: canvas pixels per original car pixel
+  const cw    = W;
+  const ch    = cw * (carImg.naturalHeight / carImg.naturalWidth);
+  const carY  = H - ch * 0.80;
   const scale = cw / carImg.naturalWidth;
 
-  // In car-image space: rearview mirror is roughly (644, 175) — center-top area
-  // Pivot on canvas:
-  const pivotX = VP_X;                             // horizontally centred
-  const pivotY = carY + 175 * scale;              // near top of windshield
+  // Pivot: rearview mirror area — horizontally centred, near top of windshield
+  const pivotX = VP_X;
+  const pivotY = carY + 175 * scale;
 
-  // Fresh image dimensions on canvas — keep it small, proportional
-  const fwNat = airFreshImg.naturalWidth;
-  const fhNat = airFreshImg.naturalHeight;
-  const fw    = cw * 0.048;                        // ~5% of car width
-  const fh    = fw * (fhNat / fwNat);
-
-  // The "675px from car bottom in image space" baseline:
-  // carImg bottom = carImg.naturalHeight px, so baseline from top = naturalHeight - 675
-  // On canvas: baseline from top of car image = (naturalHeight - 675) * scale
-  // pivotY + stringLen = carY + (naturalHeight - 675) * scale
+  // Bottom of freshener = 675px from car image bottom (in image space)
   const baselineCanvasY = carY + (carImg.naturalHeight - 675) * scale;
-  const stringLen = baselineCanvasY - pivotY - fh; // gap between pivot and top of freshener
 
-  // Gentle pendulum: restoring + tiny noise nudge for liveliness
-  const nudge  = Math.sin(performance.now() * 0.00073) * 0.00008
-               + Math.sin(performance.now() * 0.00131) * 0.00004;
-  freshVel    += (-FRESH_RESTORE * freshAngle) + nudge;
-  freshVel    *= FRESH_DAMP;
-  freshAngle  += freshVel;
+  const fw = cw * 0.048;
+  const fh = fw * (airFreshImg.naturalHeight / airFreshImg.naturalWidth);
+  const stringLen = baselineCanvasY - pivotY - fh;
+
+  // Pendulum
+  const nudge = Math.sin(performance.now() * 0.00073) * 0.00008
+              + Math.sin(performance.now() * 0.00131) * 0.00004;
+  freshVel += (-FRESH_RESTORE * freshAngle) + nudge;
+  freshVel *= FRESH_DAMP;
+  freshAngle += freshVel;
 
   ctx.save();
   ctx.translate(pivotX, pivotY);
   ctx.rotate(freshAngle);
 
-  // String from pivot down to top of freshener
   if (stringLen > 0) {
     ctx.strokeStyle = 'rgba(200,185,160,0.55)';
     ctx.lineWidth   = 0.8;
@@ -276,10 +258,7 @@ function drawAirFreshener(dt) {
     ctx.stroke();
   }
 
-  // Draw freshener image centred horizontally, below pivot
-  const drawTop = Math.max(0, stringLen);
-  ctx.drawImage(airFreshImg, -fw * 0.5, drawTop, fw, fh);
-
+  ctx.drawImage(airFreshImg, -fw * 0.5, Math.max(0, stringLen), fw, fh);
   ctx.restore();
 }
 
@@ -398,7 +377,6 @@ function getDlgBox() {
 function drawDialogue(now) {
   if (!dlgVisible && dlgAlpha <= 0.01) return;
 
-  // dt for cursor blink
   const dt = now - lastFrameMs;
   lastFrameMs = now;
   cursorMs = (cursorMs + dt) % 1000;
@@ -411,12 +389,10 @@ function drawDialogue(now) {
   const line = LINES[lineIndex];
   if (!line) return;
 
-  // Draw on pctx (post canvas) — after pixelation so text stays sharp
-  // but styled with phosphor glow to feel in-world
   pctx.save();
   pctx.globalAlpha = dlgAlpha;
 
-  // Subtle box — very low opacity, mostly just a glow anchor
+  // Subtle dark box
   pctx.fillStyle   = 'rgba(2, 1, 8, 0.72)';
   pctx.strokeStyle = 'rgba(120, 180, 240, 0.10)';
   pctx.lineWidth   = 1;
@@ -429,14 +405,12 @@ function drawDialogue(now) {
   const tx = bx + 28;
   const ty = by + 22;
   const fontStr = `${line.italic ? 'italic ' : ''}${DLG_SIZE}px 'Special Elite', monospace`;
-
-  // Phosphor glow layers — wide diffuse glow first, then sharp text on top
   pctx.font         = fontStr;
   pctx.textAlign    = 'left';
   pctx.textBaseline = 'top';
 
   if (line.italic) {
-    // Italic lines: softer blue-white, dreamy
+    // Dreamy blue-white for italic lines
     pctx.shadowColor = 'rgba(140, 195, 255, 0.9)';
     pctx.shadowBlur  = 22;
     pctx.fillStyle   = 'rgba(160, 205, 245, 0.5)';
@@ -445,7 +419,7 @@ function drawDialogue(now) {
     pctx.fillStyle   = 'rgba(200, 225, 255, 0.85)';
     pctx.fillText(displayed, tx, ty);
   } else {
-    // Normal lines: warm phosphor — like an old green-white CRT
+    // Warm phosphor glow for normal lines
     pctx.shadowColor = 'rgba(160, 220, 255, 0.85)';
     pctx.shadowBlur  = 18;
     pctx.fillStyle   = 'rgba(180, 220, 240, 0.45)';
@@ -618,11 +592,12 @@ function frame(now) {
   drawReflectors();
   drawHeadlightCones();
   drawCar();
-  drawAirFreshener(dt);
+  drawAirFreshener();
 
   applyPost();
 
-  drawDialogue(now);   // ← on POST canvas after pixelation, CRT-glow styled
+  drawDialogue(now);   // ← after pixelation, on post canvas with phosphor glow
+
   requestAnimationFrame(frame);
 }
 
