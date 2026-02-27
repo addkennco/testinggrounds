@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; width: 100vw; height: 100vh; cursor: default; }
+  #wrap { position: relative; width: 100vw; height: 100vh; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #post {
+    pointer-events: none;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+  #clicker { position: absolute; inset: 0; z-index: 5; cursor: pointer; }
+  #fade {
+    position: absolute; inset: 0; background: #000;
+    pointer-events: none; opacity: 1;
+    transition: opacity 1.6s ease; z-index: 10;
+  }
+  #fade.clear { opacity: 0; }
+  #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="scene"></canvas>
+  <canvas id="post"></canvas>
+  <div id="clicker"></div>
+  <div id="fade"></div>
+</div>
+<script>
+// ─── SETUP ────────────────────────────────────────────────────────────────────
+const scene = document.getElementById('scene');
+const ctx   = scene.getContext('2d');
+const post  = document.getElementById('post');
+const pctx  = post.getContext('2d');
+
+let W, H;
+let _stars = null;
+
+function resize() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  scene.width = post.width  = W;
+  scene.height= post.height = H;
+  _stars = null;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── ASSETS ───────────────────────────────────────────────────────────────────
+const fenceImg = new Image(); fenceImg.src = 'assets/fence.png';
+const poleImg  = new Image(); poleImg.src  = 'assets/utilitypole.png';
+const treeImg  = new Image(); treeImg.src  = 'assets/tree.png';
+
+// ─── PARALLAX STATE ───────────────────────────────────────────────────────────
+// fence: slow zoom-in toward viewer
+// pole:  drifts leftward (like car is still moving, pole slides by)
+// tree:  drifts rightward (same motion on the other side)
+const FENCE_ZOOM_RATE = 0.0000055;  // scale per ms — barely perceptible creep
+const POLE_DRIFT_RATE = -0.0022;    // px per ms leftward
+const TREE_DRIFT_RATE =  0.0022;    // px per ms rightward
+
+let fenceScale  = 1.0;
+let poleOffsetX = 0;
+let treeOffsetX = 0;
+let elapsed     = 0;
+
+// ─── SKY ──────────────────────────────────────────────────────────────────────
+function drawSky(now) {
+  const grad = ctx.createLinearGradient(0, 0, 0, H * 0.62);
+  grad.addColorStop(0.00, '#010109');
+  grad.addColorStop(0.28, '#08051a');
+  grad.addColorStop(0.60, '#120828');
+  grad.addColorStop(0.82, '#1c0c1e');
+  grad.addColorStop(0.93, '#251018');
+  grad.addColorStop(1.00, '#2e1210');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Faint horizon warmth — remnant of headlights passed
+  const hg = ctx.createLinearGradient(0, H * 0.52, 0, H * 0.68);
+  hg.addColorStop(0, 'rgba(80,32,8,0)');
+  hg.addColorStop(0.4, 'rgba(100,42,8,0.07)');
+  hg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = hg;
+  ctx.fillRect(0, H * 0.52, W, H * 0.16);
+
+  if (!_stars) {
+    _stars = Array.from({length: 85}, () => ({
+      x:  Math.random(),
+      y:  Math.random() * 0.56,
+      s:  0.3 + Math.random() * 1.1,
+      ph: Math.random() * Math.PI * 2,
+      sp: 0.3 + Math.random() * 1.6,
+    }));
+  }
+  const t = now * 0.001;
+  for (const st of _stars) {
+    const tw = 0.3 + 0.7 * Math.abs(Math.sin(t * st.sp + st.ph));
+    ctx.save();
+    ctx.globalAlpha = tw * 0.72;
+    ctx.fillStyle   = '#cce0ff';
+    ctx.shadowColor = '#8abaff';
+    ctx.shadowBlur  = 3;
+    ctx.beginPath();
+    ctx.arc(st.x * W, st.y * H * 0.58, st.s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ─── GROUND PLANE ─────────────────────────────────────────────────────────────
+// Dark earth below the scene — gives the PNGs something to sit on
+function drawGround() {
+  const groundY = H * 0.62;
+  const grad = ctx.createLinearGradient(0, groundY, 0, H);
+  grad.addColorStop(0,   '#0a0614');
+  grad.addColorStop(0.3, '#070410');
+  grad.addColorStop(1,   '#04030a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, groundY, W, H - groundY);
+
+  // Subtle road surface glint — residual of the drive
+  const roadSheen = ctx.createLinearGradient(W * 0.3, groundY, W * 0.7, groundY);
+  roadSheen.addColorStop(0,   'rgba(0,0,0,0)');
+  roadSheen.addColorStop(0.5, 'rgba(50,40,80,0.08)');
+  roadSheen.addColorStop(1,   'rgba(0,0,0,0)');
+  ctx.fillStyle = roadSheen;
+  ctx.fillRect(W * 0.3, groundY, W * 0.4, H * 0.06);
+}
+
+// ─── ATMOSPHERIC HAZE ─────────────────────────────────────────────────────────
+function drawHaze() {
+  // Soft ground fog pooling at the horizon line
+  const horizonY = H * 0.60;
+  const hazeH    = H * 0.14;
+
+  const haze = ctx.createLinearGradient(0, horizonY - hazeH * 0.5, 0, horizonY + hazeH);
+  haze.addColorStop(0,   'rgba(18,8,30,0)');
+  haze.addColorStop(0.4, 'rgba(22,10,35,0.28)');
+  haze.addColorStop(0.7, 'rgba(16,8,24,0.18)');
+  haze.addColorStop(1,   'rgba(8,4,14,0)');
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, horizonY - hazeH * 0.5, W, hazeH * 1.5);
+
+  // Side darkness — narrow corridor effect
+  const leftDark = ctx.createLinearGradient(0, 0, W * 0.18, 0);
+  leftDark.addColorStop(0, 'rgba(2,1,8,0.55)');
+  leftDark.addColorStop(1, 'rgba(2,1,8,0)');
+  ctx.fillStyle = leftDark;
+  ctx.fillRect(0, 0, W * 0.18, H);
+
+  const rightDark = ctx.createLinearGradient(W * 0.82, 0, W, 0);
+  rightDark.addColorStop(0, 'rgba(2,1,8,0)');
+  rightDark.addColorStop(1, 'rgba(2,1,8,0.55)');
+  ctx.fillStyle = rightDark;
+  ctx.fillRect(W * 0.82, 0, W * 0.18, H);
+}
+
+// ─── FENCE ────────────────────────────────────────────────────────────────────
+// Full-screen, slowly zooms toward viewer
+function drawFence() {
+  if (fenceImg.naturalWidth <= 0) return;
+  const dw = W * fenceScale;
+  const dh = H * fenceScale;
+  const dx = (W - dw) * 0.5;
+  const dy = (H - dh) * 0.5;
+  ctx.save();
+  ctx.globalAlpha = 0.90;
+  ctx.drawImage(fenceImg, dx, dy, dw, dh);
+  ctx.restore();
+}
+
+// ─── UTILITY POLE ─────────────────────────────────────────────────────────────
+// Left-aligned, drifts leftward off screen
+function drawPole() {
+  if (poleImg.naturalWidth <= 0) return;
+  const aspect = poleImg.naturalHeight / poleImg.naturalWidth;
+  const pw  = W * 0.18;
+  const ph  = pw * aspect;
+  // Anchor: left side at ~W*0.05, bottom at ~H*0.92
+  const baseX = W * 0.05;
+  const px  = baseX + poleOffsetX;
+  const py  = H * 0.92 - ph;
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.drawImage(poleImg, px, py, pw, ph);
+  ctx.restore();
+}
+
+// ─── TREE ─────────────────────────────────────────────────────────────────────
+// Right-aligned, drifts rightward off screen
+function drawTree() {
+  if (treeImg.naturalWidth <= 0) return;
+  const aspect = treeImg.naturalHeight / treeImg.naturalWidth;
+  const tw  = W * 0.26;
+  const th  = tw * aspect;
+  // Anchor: right edge at ~W*0.97, bottom at ~H*0.92
+  const baseX = W * 0.97 - tw;
+  const tx  = baseX + treeOffsetX;
+  const ty  = H * 0.92 - th;
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.drawImage(treeImg, tx, ty, tw, th);
+  ctx.restore();
+}
+
+// ─── DIALOGUE SYSTEM ──────────────────────────────────────────────────────────
+// ALL text is drawn on the scene canvas — it lives under the post-processing
+// dither pass, so it pixelates with everything else. Silkscreen is a proper
+// pixel font so it survives the quantization and looks intentional.
+
+const LINES = [
+  { text: "I don't remember who made this.", italic: false },
+  { text: "If it was you or me.", italic: false },
+  { text: "But I remember how you got that scar", italic: false },
+  { text: "That late night in August.", italic: false },
+  // null text = choice card
+  { text: null, choice: true, options: [
+    "It's strange, what stays with you.",
+    "It feels like it was only yesterday.",
+  ]},
+];
+
+const FONT_SIZE  = 18;   // rendered at full res → gets pixelated by dither
+const FONT_SMALL = 9;
+const FONT       = `'Silkscreen', monospace`;
+
+let lineIndex   = 0;
+let charIndex   = 0;
+let typing      = false;
+let lineReady   = false;
+let typingTimer = null;
+let sceneEnding = false;
+let showHint    = false;
+let hintAlpha   = 0;
+let cursorOn    = true;
+let cursorMs    = 0;
+let lastFrameMs = 0;
+let choiceHover = -1;
+let mouseX      = 0;
+let mouseY      = 0;
+
+// ─── DIALOGUE BOX ─────────────────────────────────────────────────────────────
+function getDlgBox() {
+  const boxW = Math.min(W * 0.74, 720);
+  const boxH = FONT_SIZE * 2 + 42;
+  const bx   = Math.round((W - boxW) * 0.5);
+  const by   = Math.round(H * 0.74);
+  return { bx, by, boxW, boxH };
+}
+
+// ─── CHOICE CARDS ─────────────────────────────────────────────────────────────
+function getChoiceRects() {
+  const opts = LINES[LINES.length - 1].options;
+  const cw   = Math.min(W * 0.60, 560);
+  const ch   = FONT_SIZE + 26;
+  const cx   = W * 0.5;
+  return opts.map((text, i) => ({
+    bx:   cx - cw * 0.5,
+    by:   H * 0.64 + i * (ch + 18),
+    bw:   cw,
+    bh:   ch,
+    text,
+  }));
+}
+
+// ─── DRAW DIALOGUE ────────────────────────────────────────────────────────────
+function drawDialogue(now) {
+  const dtMs = now - lastFrameMs;
+  lastFrameMs = now;
+  cursorMs = (cursorMs + dtMs) % 1000;
+  cursorOn  = cursorMs < 520;
+
+  const line = LINES[lineIndex];
+  if (!line) return;
+
+  // ── CHOICE SCREEN ──
+  if (line.choice) {
+    const rects = getChoiceRects();
+
+    // Soft header above choices
+    ctx.save();
+    ctx.font         = `italic ${FONT_SIZE}px ${FONT}`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor  = 'rgba(140,195,255,0.7)';
+    ctx.shadowBlur   = 16;
+    ctx.fillStyle    = 'rgba(170,210,250,0.55)';
+    ctx.fillText('choose a thought', W * 0.5, H * 0.60);
+    ctx.restore();
+
+    for (let i = 0; i < rects.length; i++) {
+      const { bx, by, bw, bh, text } = rects[i];
+      const hover = i === choiceHover;
+
+      ctx.save();
+      // Box
+      ctx.fillStyle   = hover ? 'rgba(140,190,255,0.10)' : 'rgba(4,2,12,0.65)';
+      ctx.strokeStyle = hover ? 'rgba(140,190,255,0.45)' : 'rgba(100,150,210,0.15)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Text
+      ctx.font         = `${FONT_SIZE}px ${FONT}`;
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor  = hover ? 'rgba(160,210,255,0.9)' : 'rgba(100,160,220,0.5)';
+      ctx.shadowBlur   = hover ? 14 : 5;
+      ctx.fillStyle    = hover ? '#e8f4ff' : '#7aaccc';
+      ctx.fillText(text, bx + bw * 0.5, by + bh * 0.5);
+      ctx.restore();
+    }
+    return;
+  }
+
+  // ── NORMAL LINE ──
+  const { bx, by, boxW, boxH } = getDlgBox();
+
+  // Box bg
+  ctx.save();
+  ctx.fillStyle   = 'rgba(2,1,10,0.70)';
+  ctx.strokeStyle = 'rgba(110,170,230,0.09)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath();
+  ctx.roundRect(bx, by, boxW, boxH, 2);
+  ctx.fill();
+  ctx.stroke();
+
+  const displayed = line.text.slice(0, charIndex);
+  const tx = bx + 26;
+  const ty = by + 18;
+
+  ctx.font         = `${line.italic ? 'italic ' : ''}${FONT_SIZE}px ${FONT}`;
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'top';
+
+  if (line.italic) {
+    // Italic lines get the cooler blue glow (internal monologue / memory)
+    ctx.shadowColor = 'rgba(140,200,255,0.95)';
+    ctx.shadowBlur  = 20;
+    ctx.fillStyle   = 'rgba(155,205,245,0.45)';
+    ctx.fillText(displayed, tx, ty);
+    ctx.shadowBlur  = 8;
+    ctx.fillStyle   = 'rgba(195,225,255,0.90)';
+    ctx.fillText(displayed, tx, ty);
+  } else {
+    ctx.shadowColor = 'rgba(150,215,255,0.65)';
+    ctx.shadowBlur  = 12;
+    ctx.fillStyle   = 'rgba(175,215,240,0.38)';
+    ctx.fillText(displayed, tx, ty);
+    ctx.shadowBlur  = 4;
+    ctx.fillStyle   = '#bcdcf0';
+    ctx.fillText(displayed, tx, ty);
+  }
+
+  // Blinking cursor
+  if (lineReady && cursorOn) {
+    const tw = ctx.measureText(displayed).width;
+    ctx.shadowBlur  = 5;
+    ctx.shadowColor = 'rgba(130,190,240,0.8)';
+    ctx.fillStyle   = '#88b8d8';
+    ctx.fillRect(tx + tw + 3, ty + 2, 4, FONT_SIZE - 2);
+  }
+
+  // "Click to continue" hint — pulsing bottom-right of box
+  if (showHint) {
+    hintAlpha += (1 - hintAlpha) * 0.055;
+    const pulse = 0.22 + 0.22 * Math.abs(Math.sin(now * 0.0021));
+    ctx.globalAlpha  = hintAlpha * pulse;
+    ctx.font         = `${FONT_SMALL}px ${FONT}`;
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.shadowColor  = 'rgba(110,175,230,0.8)';
+    ctx.shadowBlur   = 7;
+    ctx.fillStyle    = 'rgba(110,170,215,0.95)';
+    ctx.fillText('click to continue', bx + boxW - 12, by + boxH - 10);
+  }
+
+  ctx.restore();
+}
+
+// ─── TYPING ───────────────────────────────────────────────────────────────────
+function startTyping() {
+  if (lineIndex >= LINES.length) { endScene(); return; }
+  const line = LINES[lineIndex];
+  if (line.choice) { return; } // choices don't type in
+
+  charIndex = 0;
+  typing    = true;
+  lineReady = false;
+  showHint  = false;
+  hintAlpha = 0;
+
+  function tick() {
+    if (charIndex >= line.text.length) {
+      typing = false; lineReady = true; showHint = true; return;
+    }
+    const ch  = line.text[charIndex++];
+    const del = 40
+      + (ch === ',' ? 210 : 0)
+      + (ch === '.' ? 290 : 0)
+      + (ch === '\u2026' ? 430 : 0);
+    typingTimer = setTimeout(tick, del);
+  }
+  tick();
+}
+
+function advance() {
+  if (sceneEnding) return;
+  const line = LINES[lineIndex];
+  if (line && line.choice) return; // choices only via click
+  if (typing) {
+    clearTimeout(typingTimer);
+    charIndex = line.text.length;
+    typing = false; lineReady = true; showHint = true;
+    return;
+  }
+  if (lineReady) { lineIndex++; startTyping(); }
+}
+
+// ─── CHOICE CLICK ─────────────────────────────────────────────────────────────
+function handleClick(mx, my) {
+  const line = LINES[lineIndex];
+  if (line && line.choice) {
+    const rects = getChoiceRects();
+    for (const { bx, by, bw, bh } of rects) {
+      if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
+        endScene(); return;
+      }
+    }
+  } else {
+    advance();
+  }
+}
+
+function handleMouseMove(mx, my) {
+  const line = LINES[lineIndex];
+  if (!line || !line.choice) { choiceHover = -1; return; }
+  const rects = getChoiceRects();
+  choiceHover = -1;
+  rects.forEach(({ bx, by, bw, bh }, i) => {
+    if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) choiceHover = i;
+  });
+}
+
+function endScene() {
+  sceneEnding = true;
+  document.getElementById('fade').classList.add('out');
+  setTimeout(() => {
+    // window.location.href = 'scene3_lake.html';
+  }, 3000);
+}
+
+// ─── POST PROCESSING ──────────────────────────────────────────────────────────
+// Identical pipeline to road.html — Bayer dither + chromatic aberration + scanlines + vignette
+const offscreen = document.createElement('canvas');
+const octx      = offscreen.getContext('2d');
+
+const BAYER8 = [
+   0,32, 8,40, 2,34,10,42,
+  48,16,56,24,50,18,58,26,
+  12,44, 4,36,14,46, 6,38,
+  60,28,52,20,62,30,54,22,
+   3,35,11,43, 1,33, 9,41,
+  51,19,59,27,49,17,57,25,
+  15,47, 7,39,13,45, 5,37,
+  63,31,55,23,61,29,53,21,
+].map(v => v / 64);
+
+const PIX    = 3;
+const CSTEPS = 24;
+const DSTR   = 0.018;
+const ABER   = 0.006;
+
+let postImageData = null;
+
+function applyPost() {
+  const pw = Math.ceil(W / PIX);
+  const ph = Math.ceil(H / PIX);
+
+  if (offscreen.width !== pw || offscreen.height !== ph) {
+    offscreen.width  = pw;
+    offscreen.height = ph;
+    postImageData    = null;
+  }
+
+  octx.clearRect(0, 0, pw, ph);
+  octx.drawImage(scene, 0, 0, pw, ph);
+
+  const src = octx.getImageData(0, 0, pw, ph);
+  const sd  = src.data;
+
+  if (!postImageData || postImageData.width !== pw || postImageData.height !== ph)
+    postImageData = octx.createImageData(pw, ph);
+  const dd  = postImageData.data;
+  const cx  = pw / 2, cy = ph / 2;
+
+  for (let y = 0; y < ph; y++) {
+    for (let x = 0; x < pw; x++) {
+      const i   = (y * pw + x) * 4;
+      const dx  = (x - cx) / pw;
+      const dy  = (y - cy) / ph;
+      const dist = Math.sqrt(dx * dx + dy * dy) * 1.42;
+      const offPx = Math.round(dist * ABER * pw);
+      const ir  = (y * pw + Math.min(pw - 1, x + offPx)) * 4;
+      const ib  = (y * pw + Math.max(0,       x - offPx)) * 4;
+      let r = sd[ir], g = sd[i + 1], b = sd[ib + 2];
+      const bv   = BAYER8[(y % 8) * 8 + (x % 8)];
+      const doff = (bv - 0.5) * DSTR * 255;
+      r = Math.min(255, Math.max(0, Math.round((r + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
+      g = Math.min(255, Math.max(0, Math.round((g + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
+      b = Math.min(255, Math.max(0, Math.round((b + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
+      dd[i] = r; dd[i+1] = g; dd[i+2] = b; dd[i+3] = sd[i+3];
+    }
+  }
+
+  octx.putImageData(postImageData, 0, 0);
+
+  pctx.clearRect(0, 0, W, H);
+  pctx.save();
+  pctx.imageSmoothingEnabled = false;
+  pctx.drawImage(offscreen, 0, 0, W, H);
+  pctx.restore();
+
+  // Scanlines
+  pctx.save();
+  pctx.globalAlpha = 0.10;
+  pctx.fillStyle   = '#000';
+  for (let y = 0; y < H; y += PIX) pctx.fillRect(0, y + PIX - 1, W, 1);
+  pctx.restore();
+
+  // Vignette — slightly shifted up so ground corners darken more
+  const vig = pctx.createRadialGradient(W*0.5, H*0.52, H*0.05, W*0.5, H*0.52, H*0.90);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.62)');
+  pctx.fillStyle = vig;
+  pctx.fillRect(0, 0, W, H);
+}
+
+// ─── MAIN LOOP ────────────────────────────────────────────────────────────────
+let lastT  = 0;
+let startT = null;
+
+function frame(now) {
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+  if (!startT) startT = now;
+  elapsed = now - startT;
+
+  // Update parallax
+  fenceScale  = 1.0 + elapsed * FENCE_ZOOM_RATE;
+  poleOffsetX = elapsed * POLE_DRIFT_RATE;
+  treeOffsetX = elapsed * TREE_DRIFT_RATE;
+
+  // Draw scene layers — all on scene canvas, all get dithered
+  ctx.clearRect(0, 0, W, H);
+  drawSky(now);
+  drawGround();
+  drawFence();
+  drawPole();
+  drawTree();
+  drawHaze();         // haze on top of layers for depth
+  drawDialogue(now);  // text under dither — belongs to the world
+
+  applyPost();
+
+  requestAnimationFrame(frame);
+}
+
+// ─── INPUT ────────────────────────────────────────────────────────────────────
+document.getElementById('clicker').addEventListener('click', e => {
+  handleClick(e.clientX, e.clientY);
+});
+document.getElementById('clicker').addEventListener('mousemove', e => {
+  mouseX = e.clientX; mouseY = e.clientY;
+  handleMouseMove(e.clientX, e.clientY);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === ' ' || e.key === 'Enter') advance();
+});
+document.addEventListener('touchend', e => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  handleClick(t.clientX, t.clientY);
+}, { passive: false });
+
+// ─── START ────────────────────────────────────────────────────────────────────
+requestAnimationFrame(frame);
+const fadeEl = document.getElementById('fade');
+setTimeout(() => {
+  fadeEl.classList.add('clear');
+  setTimeout(startTyping, 1500);
+}, 100);
+</script>
+</body>
+</html>
