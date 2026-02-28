@@ -36,7 +36,7 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
-  #clicker { position: absolute; inset: 0; z-index: 5; cursor: pointer; }
+  #clicker { position: absolute; inset: 0; z-index: 5; cursor: default; }
   #fade {
     position: absolute; inset: 0; background: #000;
     pointer-events: none; opacity: 1;
@@ -317,10 +317,13 @@ let dlgTyping   = false;
 let dlgReady    = false;
 let dlgTimer    = null;
 let sceneEnding = false;
+let dlgVisible  = false;
+let dlgAlpha    = 0;
 let cursorOn    = true;
 let cursorMs    = 0;
 let lastFrameMs = 0;
 let choiceHover = -1;
+let mouseX      = 0;
 let mouseY      = 0;
 let dlgFading   = false;
 
@@ -328,12 +331,12 @@ let dlgFading   = false;
 function getChoiceRects() {
   const choiceLine = dlgLines.find(l => l.choice);
   const opts  = choiceLine ? choiceLine.options : [];
-  const rowH  = DLG_SIZE + 28;
+  const rowH  = DLG_SIZE + 16;
   const tx    = W * 0.09;
   const baseY = dlgY();
   return opts.map((text, i) => ({
     bx: tx,
-    by: baseY + i * (rowH + 10),
+    by: baseY + i * (rowH + 8),
     bw: W * 0.82,
     bh: rowH,
     text,
@@ -347,6 +350,10 @@ function drawDialogue(now) {
   cursorMs = (cursorMs + dtMs) % 1000;
   cursorOn  = cursorMs < 520;
 
+  const target = dlgVisible ? 1 : 0;
+  dlgAlpha += (target - dlgAlpha) * 0.07;
+  if (!dlgVisible && dlgAlpha <= 0.01) return;
+
   const line = dlgLines[dlgIndex];
   if (!line) return;
 
@@ -357,6 +364,7 @@ function drawDialogue(now) {
       const { bx, by, bw, bh, text } = rects[i];
       const hover = i === choiceHover;
       ctx.save();
+      ctx.globalAlpha  = dlgAlpha;
       ctx.font         = `${DLG_SIZE}px ${DLG_FONT}`;
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'middle';
@@ -375,6 +383,7 @@ function drawDialogue(now) {
 
   // ── NORMAL LINE ──
   ctx.save();
+  ctx.globalAlpha = dlgAlpha;
   const displayed = line.text.slice(0, dlgChar);
   const tx = W * 0.09;
   const ty = dlgY();
@@ -404,10 +413,10 @@ function drawDialogue(now) {
   // Blinking cursor
   if (dlgReady && cursorOn) {
     const tw = ctx.measureText(displayed).width;
-    ctx.shadowBlur  = 6;
     ctx.shadowColor = 'rgba(130,190,240,0.8)';
+    ctx.shadowBlur  = 6;
     ctx.fillStyle   = '#88b8d8';
-    ctx.fillRect(tx + tw + 3, ty + 2, 4, DLG_SIZE - 2);
+    ctx.fillRect(tx + tw + 3, ty + 3, 4, DLG_SIZE - 4);
   }
 
   // "click to continue" — arrow tethered just below the blinking cursor
@@ -419,7 +428,7 @@ function drawDialogue(now) {
     const arrowY = ty + DLG_SIZE + 14 + bob;
     const aw = 9, ah = 6;
     ctx.save();
-    ctx.globalAlpha  = pulse;
+    ctx.globalAlpha  = dlgAlpha * pulse;
     ctx.shadowColor  = 'rgba(130,190,240,0.85)'; ctx.shadowBlur = 10;
     ctx.fillStyle    = 'rgba(160,210,245,0.90)';
     ctx.beginPath();
@@ -461,9 +470,11 @@ function typeNextLine() {
 }
 
 function startDialogue(lines, callback) {
-  dlgLines  = lines;
-  dlgIndex  = 0;
-  dlgFading = false;
+  dlgLines   = lines;
+  dlgIndex   = 0;
+  dlgVisible = true;
+  dlgAlpha   = 0;
+  dlgFading  = false;
   typeNextLine();
 }
 
@@ -515,6 +526,7 @@ function handleMouseMove(mx, my) {
 
 function endScene() {
   sceneEnding = true;
+  document.getElementById('clicker').style.cursor = 'default';
   document.getElementById('fade').classList.add('out');
   setTimeout(() => {
     window.location.href = 'lake.html';
@@ -524,7 +536,7 @@ function endScene() {
 // ─── POST PROCESSING ──────────────────────────────────────────────────────────
 // Identical pipeline to road.html — Bayer dither + chromatic aberration + scanlines + vignette
 const offscreen = document.createElement('canvas');
-const octx      = offscreen.getContext('2d');
+const octx      = offscreen.getContext('2d', { willReadFrequently: true });
 
 const BAYER8 = [
    0,32, 8,40, 2,34,10,42,
@@ -658,8 +670,12 @@ document.getElementById('clicker').addEventListener('click', e => {
   handleClick(e.clientX, e.clientY);
 });
 document.getElementById('clicker').addEventListener('mousemove', e => {
+  mouseX = e.clientX;
   mouseY = e.clientY;
-  handleMouseMove(e.clientX, e.clientY);
+  handleMouseMove(mouseX, mouseY);
+  const line = dlgLines[dlgIndex];
+  const overChoice = line && line.choice && choiceHover !== -1;
+  document.getElementById('clicker').style.cursor = overChoice ? 'none' : 'default';
 });
 document.addEventListener('keydown', e => {
   if (e.key === ' ' || e.key === 'Enter') advanceDlg();
