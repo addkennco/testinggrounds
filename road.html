@@ -502,7 +502,19 @@ const DLG_SIZE = 28;
 const DLG_FONT = `'Silkscreen', monospace`;
 
 // Dialogue Y: lower quarter of screen, anchored so it never drifts into the road
-function dlgY() { return Math.max(H * 0.72, H - 220); }
+function dlgY() { return Math.max(H * 0.75, H - 195); }
+
+let lineIndex   = 0;
+let charIndex   = 0;
+let typing      = false;
+let lineReady   = false;
+let typingTimer = null;
+let sceneEnding = false;
+let dlgVisible  = false;
+let dlgAlpha    = 0;
+let cursorOn    = true;
+let cursorMs    = 0;
+let lastFrameMs = 0;
 
 // Text drawn on ctx (scene canvas) so it lives UNDER post-processing dither
 function drawDialogue(now) {
@@ -556,19 +568,24 @@ function drawDialogue(now) {
     ctx.fillRect(tx + tw + 3, ty + 3, 4, DLG_SIZE - 4);
   }
 
-  // "click to continue" hint — pulses below the text once line is done
+  // "click to continue" — small downward triangle arrow with bob
   if (lineReady) {
-    const pulse  = 0.20 + 0.20 * Math.abs(Math.sin(now * 0.0016));
-    const hintY  = ty + DLG_SIZE + 14;
-    ctx.globalAlpha = dlgAlpha * pulse;
-    ctx.font        = `14px ${DLG_FONT}`;
-    ctx.shadowColor = 'rgba(130,180,240,0.80)';
-    ctx.shadowBlur  = 10;
-    ctx.fillStyle   = 'rgba(130,180,220,0.60)';
-    ctx.fillText('click to continue', tx, hintY);
-    ctx.shadowBlur  = 4;
-    ctx.fillStyle   = 'rgba(160,200,240,0.90)';
-    ctx.fillText('click to continue', tx, hintY);
+    const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
+    const bob    = Math.sin(now * 0.0022) * 3.5;
+    const arrowX = tx + 10;
+    const arrowY = ty + DLG_SIZE + 18 + bob;
+    const aw = 9, ah = 6;
+    ctx.save();
+    ctx.globalAlpha  = dlgAlpha * pulse;
+    ctx.shadowColor  = 'rgba(130,190,240,0.85)'; ctx.shadowBlur = 10;
+    ctx.fillStyle    = 'rgba(160,210,245,0.90)';
+    ctx.beginPath();
+    ctx.moveTo(arrowX - aw, arrowY - ah);
+    ctx.lineTo(arrowX + aw, arrowY - ah);
+    ctx.lineTo(arrowX,      arrowY + ah * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   ctx.restore();
