@@ -44,15 +44,8 @@
   #fade.in  { opacity: 1; }
   #fade.out { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
 
-  /* ── LAYER 3: overlay — fixed over everything, pointer-events:none ── */
-  #overlay {
-    position: fixed;
-    inset: 0;
-    width: 100vw; height: 100vh;
-    background: url('assets/overlay.png') center center / 100% 100% no-repeat;
-    pointer-events: none;
-    z-index: 9999;
-  }
+  /* overlay.png is composited onto the scene canvas before post-processing
+     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -62,8 +55,6 @@
   <div id="clicker"></div>
   <div id="fade" class="in"></div>
 </div>
-<!-- overlay sits outside #wrap so it covers the full viewport -->
-<div id="overlay"></div>
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
 const Audio = {
@@ -147,6 +138,7 @@ window.addEventListener('resize', resize);
 
 // ─── ASSETS ───────────────────────────────────────────────────────────────────
 const bridgeImg   = new Image(); bridgeImg.src   = 'assets/bridge.png';
+const overlayImg  = new Image(); overlayImg.src  = 'assets/overlay.png';
 const cattailsImg = new Image(); cattailsImg.src = 'assets/cattails.png';
 const rushesImg   = new Image(); rushesImg.src   = 'assets/rushes.png';
 const portraitImg = new Image(); portraitImg.src = 'assets/portrait.png';
@@ -491,8 +483,8 @@ function drawBottomShore(now) {
 function drawShoes(now) {
   const t    = now * 0.001;
   const sway = Math.sin(t * 0.4) * 1.2;
-  const baseY = H - SHORE_H * 0.32;   // shoes live well inside the shore band
-  const cx    = W / 2;
+  const baseY = H - SHORE_H * 0.32;
+  const cx    = W * 0.35;   // left of center — hip-toss stance
   const gap   = 38;
   drawOneShoe(ctx, cx - gap, baseY, -1, sway * 0.6);
   drawOneShoe(ctx, cx + gap, baseY,  1, sway * 0.4);
@@ -626,104 +618,100 @@ function drawFireflies(now) {
 }
 
 // ─── LILY PADS ────────────────────────────────────────────────────────────────
-class LilyPad {
-  constructor(startX) { this._initX=startX; this._init(true); }
-  _init(useStartX) {
-    this.depthT     = 0.12 + Math.random()*0.76;
-    this.y          = HORIZON_Y + (H-SHORE_H-HORIZON_Y)*(0.08+this.depthT*0.76);
-    this.baseRadius = 18 + this.depthT*38;
-    this.side       = Math.random()<0.5?-1:1;
-    this.speed      = (0.008+Math.random()*0.008)*-this.side;
-    this.gapAngle   = Math.PI*0.5+(Math.random()-0.5)*0.7;
-    this.wobble     = 0;
-    this.x = useStartX ? this._initX : (this.side<0?-100:W+100);
-  }
-  reset() { this._init(false); }
-  update(dt) {
-    this.x += this.speed*dt;
-    if (this.wobble>0) { this.wobble-=dt*0.0012; if(this.wobble<0)this.wobble=0; }
-    if (this.x<-280||this.x>W+280) this.reset();
-  }
-  draw() {
-    const r=this.baseRadius, scaleY=0.38+this.depthT*0.12;
-    const wobbleSpin=Math.sin(this.wobble*Math.PI)*0.28;
-    const orientation=this.gapAngle+wobbleSpin;
-    const gapHalf=Math.PI*(40/360);
-    const startA=orientation+gapHalf, endA=orientation+Math.PI*2-gapHalf;
-    ctx.save(); ctx.translate(this.x,this.y);
+// Stable, rooted pads — gentle individual bob, no lateral drift.
+// Moonlight rim: each pad draws a shifted "ghost" behind itself for a unified
+// left-side highlight, as if one light source catches the whole clump edge.
+const MOON_SHIFT_X = -4;  // moonlight from upper-left
+const MOON_SHIFT_Y = -2;
 
-    // Dark body — nearly black-green
-    ctx.beginPath(); ctx.moveTo(0,0);
-    const steps=60;
-    for (let i=0;i<=steps;i++) {
-      const angle=startA+(endA-startA)*(i/steps);
-      ctx.lineTo(Math.cos(angle)*r, Math.sin(angle)*r*scaleY);
+class LilyPad {
+  constructor(ax, ay, radius, gapAngle) {
+    this.ax         = ax;       // anchor X as proportion of W
+    this.ay         = ay;       // anchor Y as proportion of water zone (0–1)
+    this.baseRadius = radius;
+    this.gapAngle   = gapAngle;
+    this.phase      = Math.random() * Math.PI * 2;
+    this.bobSpeed   = 0.0004 + Math.random() * 0.0003;
+    this.bobAmp     = 1.0 + Math.random() * 1.8;
+    this.wobble     = 0;
+  }
+  update(dt) {
+    if (this.wobble > 0) { this.wobble -= dt * 0.0012; if (this.wobble < 0) this.wobble = 0; }
+  }
+  _buildPath(ctx, r, scaleY, offX, offY) {
+    const ws = Math.sin(this.wobble * Math.PI) * 0.18;
+    const ori = this.gapAngle + ws;
+    const gh = Math.PI * (40/360);
+    const startA = ori + gh, endA = ori + Math.PI*2 - gh;
+    ctx.beginPath(); ctx.moveTo(offX, offY);
+    for (let i = 0; i <= 60; i++) {
+      const a = startA + (endA - startA) * (i / 60);
+      ctx.lineTo(Math.cos(a)*r + offX, Math.sin(a)*r*scaleY + offY);
     }
     ctx.closePath();
-    const bodyGrad=ctx.createRadialGradient(0,0,0,0,0,r);
-    bodyGrad.addColorStop(0,'rgba(14,36,18,0.97)');
-    bodyGrad.addColorStop(0.6,'rgba(8,22,12,0.98)');
-    bodyGrad.addColorStop(1,'rgba(4,14,8,0.99)');
-    ctx.fillStyle=bodyGrad; ctx.fill();
+  }
+  draw(now) {
+    const x = this.ax * W;
+    const y = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * this.ay;
+    const bob = Math.sin(now * this.bobSpeed + this.phase) * this.bobAmp;
+    const r = this.baseRadius, scaleY = 0.40;
 
-    // Leading-edge water highlight — bright arc on the side facing direction of travel
-    const leadAngle = this.speed < 0 ? Math.PI : 0;
-    const hlSpan = Math.PI * 0.55;
+    ctx.save(); ctx.translate(x, y + bob);
+
+    // Moonlight rim — ghost shape shifted upper-left, drawn first (underneath)
+    this._buildPath(ctx, r * 1.02, scaleY, MOON_SHIFT_X, MOON_SHIFT_Y);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = 'rgba(80,200,150,0.7)';
-    ctx.lineWidth = 1.8 + this.baseRadius * 0.025;
-    ctx.shadowColor = 'rgba(60,180,130,1)';
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    let first=true;
-    const hSteps=24;
-    for (let i=0;i<=hSteps;i++) {
-      const angle=leadAngle-hlSpan+(hlSpan*2)*(i/hSteps);
-      const px=Math.cos(angle)*r, py=Math.sin(angle)*r*scaleY;
-      if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);
-    }
-    ctx.stroke();
-
-    // Subtle secondary glow — full outline, dimmer
-    ctx.strokeStyle='rgba(40,130,90,0.22)';
-    ctx.lineWidth=1; ctx.shadowBlur=4;
-    ctx.beginPath(); ctx.moveTo(0,0);
-    for (let i=0;i<=steps;i++) {
-      const angle=startA+(endA-startA)*(i/steps);
-      ctx.lineTo(Math.cos(angle)*r,Math.sin(angle)*r*scaleY);
-    }
-    ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = 'rgba(70,180,140,0.28)';
+    ctx.shadowColor = 'rgba(60,170,130,0.6)';
+    ctx.shadowBlur = 8;
+    ctx.fill();
     ctx.restore();
+
+    // Pad body on top
+    this._buildPath(ctx, r, scaleY, 0, 0);
+    const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    bodyGrad.addColorStop(0,   'rgba(14,36,18,0.97)');
+    bodyGrad.addColorStop(0.6, 'rgba(8,22,12,0.98)');
+    bodyGrad.addColorStop(1,   'rgba(4,14,8,0.99)');
+    ctx.fillStyle = bodyGrad; ctx.fill();
 
     ctx.restore();
   }
-  hitTest(sx,sy) {
-    const dx=sx-this.x, dy=sy-this.y, r=this.baseRadius*1.1, ry=r*0.38;
-    return (dx*dx)/(r*r)+(dy*dy)/(ry*ry)<1.0;
+  hitTest(sx, sy) {
+    const x = this.ax * W;
+    const y = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * this.ay;
+    const dx = sx - x, dy = sy - y;
+    const r = this.baseRadius * 1.1, ry = r * 0.40;
+    return (dx*dx)/(r*r) + (dy*dy)/(ry*ry) < 1.0;
   }
 }
 
-let lilyPads = [];
+let lilyPads  = [];
+let lilyClump = [];  // kept for compatibility with existing sort/draw calls
+
 function initLilyPads() {
-  lilyPads = Array.from({length:5},(_,i) => new LilyPad(W*0.08+(i/4)*W*0.84));
+  // Main spread: a few lone pads mid-water
+  const spread = [
+    [0.42, 0.38, 24, Math.PI*0.5],
+    [0.62, 0.55, 28, Math.PI*1.3],
+    [0.28, 0.60, 20, Math.PI*0.9],
+  ];
+  lilyPads = spread.map(([ax,ay,r,g]) => new LilyPad(ax,ay,r,g));
 }
 
-// ─── LILY PAD CLUMP (bottom-right) ───────────────────────────────────────────
-let lilyClump = [];
 function initLilyClump() {
-  lilyClump = [];
-  const clumpCount = 5 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < clumpCount; i++) {
-    const lp = new LilyPad(W * 0.62 + Math.random() * W * 0.28);
-    // Override to sit in the lower-right water zone
-    lp.depthT     = 0.55 + Math.random() * 0.40;
-    lp.y          = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * (0.62 + Math.random() * 0.32);
-    lp.baseRadius = 14 + lp.depthT * 28;
-    lp.speed      = (0.004 + Math.random() * 0.005) * (Math.random() < 0.5 ? -1 : 1);
-    lp.side       = lp.speed < 0 ? -1 : 1;
-    lilyClump.push(lp);
-  }
+  // Dense clump bottom-right — overlapping, varied sizes
+  const clump = [
+    [0.76, 0.82, 38, Math.PI*0.6],
+    [0.82, 0.88, 32, Math.PI*1.2],
+    [0.70, 0.90, 26, Math.PI*0.3],
+    [0.88, 0.78, 30, Math.PI*1.8],
+    [0.78, 0.94, 22, Math.PI*1.0],
+    [0.85, 0.92, 18, Math.PI*0.7],
+    [0.72, 0.85, 20, Math.PI*1.5],
+  ];
+  lilyClump = clump.map(([ax,ay,r,g]) => new LilyPad(ax,ay,r,g));
 }
 
 // ─── DEBRIS (twigs + leaves drifting across water) ───────────────────────────
@@ -887,7 +875,7 @@ function throwStone(targetX) {
 
   stoneState = 'throwing'; skipCount = 0;
   const maxSkips = 2+Math.floor(Math.random()*5);
-  const startX   = W*0.5+(targetX-W*0.5)*0.07;
+  const startX   = W*0.35+(targetX-W*0.35)*0.07;
   const nearY    = HORIZON_Y+(H-SHORE_H-HORIZON_Y)*0.88;
   const farY     = HORIZON_Y+WATER_H*0.10;
   const skips    = [];
@@ -1416,8 +1404,9 @@ function drawDialogue(now) {
     if (dlgReady) {
       const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
       const bob    = Math.sin(now * 0.0022) * 3.5;  // gentle vertical float
-      const arrowX = tx + 10;
-      const arrowY = ty + DLG_SIZE + 18 + bob;
+      const tw     = ctx.measureText(displayed).width;
+      const arrowX = tx + tw + 3 + 2;
+      const arrowY = ty + DLG_SIZE + 14 + bob;
       const aw     = 9, ah = 6;  // half-width, height
       ctx.save();
       ctx.globalAlpha  = dlgAlpha * pulse;
@@ -1596,6 +1585,14 @@ function applyPost() {
   if (offscreen.width!==pw||offscreen.height!==ph) {
     offscreen.width=pw; offscreen.height=ph; postImageData=null;
   }
+  // Stamp overlay.png onto scene canvas so it gets dithered with everything else
+  if (overlayImg.naturalWidth > 0) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(overlayImg, 0, 0, W, H);
+    ctx.restore();
+  }
+
   octx.clearRect(0,0,pw,ph);
   octx.drawImage(scene,0,0,pw,ph);
   const src=octx.getImageData(0,0,pw,ph), sd=src.data;
@@ -1670,10 +1667,9 @@ function frame(now) {
   // Debris (twigs, leaves) — back-to-front with lily pads
   for (const d of debris) { d.update(); d.draw(); }
 
-  // Lily pads — main spread + clump (all sorted back-to-front)
-  const allPads = [...lilyPads, ...lilyClump];
-  allPads.sort((a,b)=>a.y-b.y);
-  for (const lp of allPads) { lp.update(dt); lp.draw(); }
+  // Lily pads — clump first (back), spread on top (front)
+  for (const lp of lilyClump) { lp.update(dt); lp.draw(now); }
+  for (const lp of lilyPads)  { lp.update(dt); lp.draw(now); }
 
   // Fireflies
   drawFireflies(now);
