@@ -132,11 +132,11 @@ function perlin2(x,y){
   return lerp(lerp(grad2(aa,xf,yf),grad2(ba,xf-1,yf),u),lerp(grad2(ab,xf,yf-1),grad2(bb,xf-1,yf-1),u),v);
 }
 
-// ─── SKY (full night) ─────────────────────────────────────────────────────────
+// ─── SKY (almost dawn) ────────────────────────────────────────────────────────
+// The night is ending — stars nearly gone, horizon just beginning to lift
 const NIGHT={
-  top:'#010109',mid:'#06040f',hor:'#100720',glow:'#1a0c1a',
-  moonX:0.73,moonY:0.20,moonR:18,
-  waterTop:'rgba(3,2,10,0.95)',waterMid:'rgba(2,1,8,0.99)',starAlpha:0.88
+  top:'#04030e',mid:'#080d18',hor:'#1a2035',glow:'#2e3045',
+  waterTop:'rgba(10,14,28,0.94)',waterMid:'rgba(8,10,22,0.97)',starAlpha:0.22
 };
 
 function ensureStars() {
@@ -147,20 +147,31 @@ function ensureStars() {
 function drawSky(now) {
   ensureStars();
   const grad=ctx.createLinearGradient(0,0,0,HORIZON_Y);
-  grad.addColorStop(0,NIGHT.top); grad.addColorStop(0.45,NIGHT.mid); grad.addColorStop(0.82,NIGHT.hor); grad.addColorStop(1,NIGHT.glow);
+  grad.addColorStop(0,    NIGHT.top);
+  grad.addColorStop(0.45, NIGHT.mid);
+  grad.addColorStop(0.82, NIGHT.hor);
+  grad.addColorStop(1,    NIGHT.glow);
   ctx.fillStyle=grad; ctx.fillRect(0,0,W,HORIZON_Y+4);
+
+  // Pre-dawn horizon blush — warm grey-rose just above treeline
+  const blush=ctx.createLinearGradient(0,HORIZON_Y*0.72,0,HORIZON_Y);
+  blush.addColorStop(0,'rgba(0,0,0,0)');
+  blush.addColorStop(0.5,'rgba(80,70,90,0.18)');
+  blush.addColorStop(1,'rgba(120,95,90,0.28)');
+  ctx.fillStyle=blush; ctx.fillRect(0,HORIZON_Y*0.72,W,HORIZON_Y*0.28);
+
+  // Stars — very dim, almost gone
   const t=now*0.001;
   for (const st of _stars) {
-    const tw=(0.35+0.65*Math.abs(Math.sin(t*st.sp+st.ph)))*NIGHT.starAlpha;
-    ctx.save(); ctx.globalAlpha=tw; ctx.fillStyle='#cce2ff'; ctx.shadowColor='#98bcff'; ctx.shadowBlur=3;
-    ctx.beginPath(); ctx.arc(st.x*W,st.y*HORIZON_Y,st.s,0,Math.PI*2); ctx.fill(); ctx.restore();
+    const tw=(0.2+0.3*Math.abs(Math.sin(t*st.sp+st.ph)))*NIGHT.starAlpha;
+    ctx.save(); ctx.globalAlpha=tw; ctx.fillStyle='#c8d8f0'; ctx.shadowColor='#88a8d0'; ctx.shadowBlur=2;
+    ctx.beginPath(); ctx.arc(st.x*W,st.y*HORIZON_Y*0.7,st.s*0.8,0,Math.PI*2); ctx.fill(); ctx.restore();
   }
-  // Moon is behind the player at this hour — not drawn
   drawTrees(); drawCattails(now);
 }
 
 function drawTrees() {
-  ctx.save(); ctx.fillStyle='#0a0616'; ctx.beginPath();
+  ctx.save(); ctx.fillStyle='#0d0e1e'; ctx.beginPath();
   ctx.moveTo(0,HORIZON_Y); ctx.lineTo(0,HORIZON_Y*0.93);
   ctx.bezierCurveTo(W*0.08,HORIZON_Y*0.87,W*0.14,HORIZON_Y*0.91,W*0.22,HORIZON_Y*0.94);
   ctx.bezierCurveTo(W*0.30,HORIZON_Y*0.97,W*0.36,HORIZON_Y*0.93,W*0.44,HORIZON_Y*0.95);
@@ -185,9 +196,15 @@ function drawBridge() {
 
 function drawWater(now) {
   const grad=ctx.createLinearGradient(0,HORIZON_Y,0,H-SHORE_H);
-  grad.addColorStop(0,NIGHT.waterTop); grad.addColorStop(0.5,NIGHT.waterMid); grad.addColorStop(1,NIGHT.waterMid);
+  grad.addColorStop(0,   NIGHT.waterTop);
+  grad.addColorStop(0.3, 'rgba(14,18,34,0.96)');
+  grad.addColorStop(1,   NIGHT.waterMid);
   ctx.fillStyle=grad; ctx.fillRect(0,HORIZON_Y,W,WATER_H);
   drawHillReflection(now); drawHorizonShimmer(now);
+  // Dawn blush reflected faintly in the near water
+  const blushRefl=ctx.createLinearGradient(0,HORIZON_Y,0,HORIZON_Y+WATER_H*0.25);
+  blushRefl.addColorStop(0,'rgba(120,95,90,0.12)'); blushRefl.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=blushRefl; ctx.fillRect(0,HORIZON_Y,W,WATER_H*0.25);
 }
 
 function drawHillReflection(now) {
@@ -209,7 +226,7 @@ function drawHillReflection(now) {
 function drawHorizonShimmer(now) {
   const t=now*0.001; ctx.save(); ctx.beginPath(); ctx.moveTo(0,HORIZON_Y+1);
   for(let x=0;x<=W;x+=12){const wy=Math.sin(x*0.018+t*1.1)*1.2+Math.sin(x*0.031+t*0.7)*0.6;ctx.lineTo(x,HORIZON_Y+1+wy);}
-  ctx.strokeStyle='rgba(160,215,255,0.28)'; ctx.lineWidth=1.2; ctx.shadowColor='rgba(120,200,255,0.55)'; ctx.shadowBlur=6;
+  ctx.strokeStyle='rgba(140,170,210,0.22)'; ctx.lineWidth=1.2; ctx.shadowColor='rgba(110,140,190,0.45)'; ctx.shadowBlur=6;
   ctx.stroke(); ctx.restore();
 }
 
@@ -420,15 +437,12 @@ function drawStone(){
 // ─── CREDITS + CHOICE UI ──────────────────────────────────────────────────────
 // Drawn on scene canvas so it passes through the dither/CRT pipeline
 function getChoiceRects(){
-  const midX=W*0.5, baseY=H*0.685, fs=Math.round(Math.min(W*0.022,18));
-  ctx.font=`${fs}px 'Silkscreen', monospace`;
-  const optA='I\'ll come back soon, promise.', optB='take a drive';
-  const wA=ctx.measureText(optA).width, wB=ctx.measureText(optB).width;
-  const pad=18, gap=W*0.10;
-  return [
-    {text:optA,bx:midX-gap*0.5-wA-pad*2,by:baseY-fs-8,bw:wA+pad*2,bh:fs+16,rx:midX-gap*0.5-wA*0.5-pad},
-    {text:optB,bx:midX+gap*0.5,         by:baseY-fs-8,bw:wB+pad*2,bh:fs+16,rx:midX+gap*0.5+wB*0.5+pad},
-  ];
+  const fs=Math.round(Math.min(W*0.022,18));
+  const tx=W*0.09, rowH=fs+28;
+  const opts=["I'm not ready to leave yet.","I'll be back soon, promise."];
+  return opts.map((text,i)=>({
+    text, bx:tx, by:H*0.64+i*(rowH+10), bw:W*0.82, bh:rowH,
+  }));
 }
 
 function drawCreditsAndChoices(now){
@@ -459,17 +473,20 @@ function drawCreditsAndChoices(now){
 
   if(choiceAlpha>0.01&&endState!=='ETERNAL'){
     const rects=getChoiceRects();
-    const pulse=0.75+0.25*Math.abs(Math.sin(now*0.0013));
-    ctx.save(); ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-    rects.forEach(({text,bx,by,bw,bh,rx},i)=>{
-      const hover=choiceHover===i;
-      ctx.globalAlpha=choiceAlpha*(hover?1.0:pulse*0.78);
-      if(hover){ ctx.fillStyle='rgba(100,170,230,0.08)'; ctx.fillRect(bx,by,bw,bh); ctx.strokeStyle='rgba(140,200,255,0.28)'; ctx.lineWidth=1; ctx.strokeRect(bx,by,bw,bh); }
-      const fs2=Math.round(Math.min(W*0.022,18));
-      ctx.font=`${fs2}px 'Silkscreen', monospace`;
-      ctx.shadowColor='rgba(140,200,255,0.85)'; ctx.shadowBlur=hover?20:12;
-      ctx.fillStyle=hover?'#e0f4ff':'rgba(170,215,245,0.90)';
-      ctx.fillText(text,rx,by+bh-8);
+    const fs2=Math.round(Math.min(W*0.022,18));
+    ctx.save(); ctx.font=`${fs2}px 'Silkscreen', monospace`;
+    ctx.textAlign='left'; ctx.textBaseline='middle';
+    rects.forEach(({text,bx,by,bw,bh},i)=>{
+      const hover=i===choiceHover;
+      ctx.globalAlpha=choiceAlpha;
+      // Double-draw glow — same as lake choices
+      ctx.shadowColor=hover?'rgba(160,210,255,0.95)':'rgba(100,160,220,0.55)';
+      ctx.shadowBlur=hover?22:8;
+      ctx.fillStyle=hover?'rgba(232,244,255,0.55)':'rgba(122,172,204,0.45)';
+      ctx.fillText(text,bx,by+bh*0.5);
+      ctx.shadowBlur=hover?8:3;
+      ctx.fillStyle=hover?'#e8f4ff':'#7aaccc';
+      ctx.fillText(text,bx,by+bh*0.5);
     });
     ctx.restore();
   }
