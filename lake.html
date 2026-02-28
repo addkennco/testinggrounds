@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>Lake</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Gochi+Hand&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400&family=Love+Ya+Like+A+Sister&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -1137,7 +1137,7 @@ function drawLetter(now, w, h) {
   const poem = POEMS[HELD.poemIndex];
   const lines = HELD.phase === 'poem' ? poem.slice(0, HELD.lineIndex+1) : poem;
   const fontSize = Math.max(32, Math.round(h * 0.065));
-  ctx.font = `${fontSize}px 'Gochi Hand', cursive`;
+  ctx.font = `${fontSize}px 'Love Ya Like A Sister', cursive`;
   ctx.fillStyle = '#2a1e10';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
