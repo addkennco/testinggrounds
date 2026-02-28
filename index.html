@@ -35,7 +35,7 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
-  #clicker { position: absolute; inset: 0; z-index: 5; cursor: pointer; }
+  #clicker { position: absolute; inset: 0; z-index: 5; cursor: default; }
   #fade {
     position: absolute; inset: 0; background: #000;
     pointer-events: none; opacity: 1; z-index: 10;
@@ -118,6 +118,8 @@ function resize() {
   HORIZON_Y = Math.round(H * 0.48);
   _stars = null;
   letters = null; // rebuild letter positions on resize
+  if (lilyPads.length)  initLilyPads();
+  if (debris.length)    initDebris();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -127,6 +129,10 @@ const bridgeImg  = new Image();
 bridgeImg.src   = 'assets/bridge.png';
 const overlayImg = new Image();
 overlayImg.src  = 'assets/overlay.png';
+const cattailsImg = new Image();
+cattailsImg.src = 'assets/cattails.png';
+const rushesImg   = new Image();
+rushesImg.src   = 'assets/rushes.png';
 
 // ─── TIMING & PHASES ──────────────────────────────────────────────────────────
 // All timed in ms from scene start
@@ -272,6 +278,186 @@ class TitleRipple {
 }
 let ripples = [];
 
+const SHORE_H = 55; // matches the shore band drawn at bottom of index scene
+
+// ─── CATTAILS + RUSHES ────────────────────────────────────────────────────────
+function drawCattails(alpha) {
+  if (cattailsImg.naturalWidth <= 0) return;
+  const aspect = cattailsImg.naturalWidth / cattailsImg.naturalHeight;
+  const ch = HORIZON_Y * 0.54;
+  const cw = ch * aspect;
+  ctx.save(); ctx.globalAlpha = alpha * 0.90;
+  ctx.drawImage(cattailsImg, W * 0.18 - cw * 0.5, HORIZON_Y - ch + 8, cw, ch);
+  ctx.restore();
+}
+
+function drawRushes(alpha) {
+  if (rushesImg.naturalWidth <= 0) return;
+  const aspect = rushesImg.naturalWidth / rushesImg.naturalHeight;
+  const rh = HORIZON_Y * 0.68;
+  const rw = rh * aspect;
+  ctx.save(); ctx.globalAlpha = alpha * 0.88;
+  ctx.drawImage(rushesImg, W * 0.80, HORIZON_Y - rh * 0.55, rw, rh);
+  ctx.restore();
+}
+
+// ─── LILY PADS ────────────────────────────────────────────────────────────────
+const MOON_SHIFT_X = -4;
+const MOON_SHIFT_Y = -2;
+
+class LilyPad {
+  constructor(ax, ay, radius, gapAngle) {
+    this.ax         = ax;
+    this.ay         = ay;
+    this.baseRadius = radius;
+    this.gapAngle   = gapAngle;
+    this.phase      = Math.random() * Math.PI * 2;
+    this.bobSpeed   = 0.0004 + Math.random() * 0.0003;
+    this.bobAmp     = 1.0 + Math.random() * 1.8;
+    this.wobble     = 0;
+  }
+  update(dt) {
+    if (this.wobble > 0) { this.wobble -= dt * 0.0012; if (this.wobble < 0) this.wobble = 0; }
+  }
+  _buildPath(ctx, r, scaleY, offX, offY) {
+    const ws = Math.sin(this.wobble * Math.PI) * 0.18;
+    const ori = this.gapAngle + ws;
+    const gh = Math.PI * (40 / 360);
+    const startA = ori + gh, endA = ori + Math.PI * 2 - gh;
+    ctx.beginPath(); ctx.moveTo(offX, offY);
+    for (let i = 0; i <= 60; i++) {
+      const a = startA + (endA - startA) * (i / 60);
+      ctx.lineTo(Math.cos(a) * r + offX, Math.sin(a) * r * scaleY + offY);
+    }
+    ctx.closePath();
+  }
+  draw(now, alpha) {
+    const waterH = H - SHORE_H - HORIZON_Y;
+    const x = this.ax * W;
+    const y = HORIZON_Y + waterH * this.ay;
+    const bob = Math.sin(now * this.bobSpeed + this.phase) * this.bobAmp;
+    const r = this.baseRadius, scaleY = 0.40;
+    ctx.save(); ctx.translate(x, y + bob);
+    // Moonlight rim
+    this._buildPath(ctx, r * 1.02, scaleY, MOON_SHIFT_X, MOON_SHIFT_Y);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha * 0.28;
+    ctx.fillStyle = 'rgba(70,180,140,1)';
+    ctx.shadowColor = 'rgba(60,170,130,0.6)'; ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.restore();
+    // Pad body
+    this._buildPath(ctx, r, scaleY, 0, 0);
+    const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    bodyGrad.addColorStop(0,   'rgba(14,36,18,0.97)');
+    bodyGrad.addColorStop(0.6, 'rgba(8,22,12,0.98)');
+    bodyGrad.addColorStop(1,   'rgba(4,14,8,0.99)');
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = bodyGrad; ctx.fill();
+    ctx.restore();
+  }
+}
+
+let lilyPads  = [];
+let lilyClump = [];
+
+function initLilyPads() {
+  const spread = [
+    [0.42, 0.38, 24, Math.PI * 0.5],
+    [0.62, 0.55, 28, Math.PI * 1.3],
+    [0.28, 0.60, 20, Math.PI * 0.9],
+  ];
+  const clump = [
+    [0.76, 0.82, 38, Math.PI * 0.6],
+    [0.82, 0.88, 32, Math.PI * 1.2],
+    [0.70, 0.90, 26, Math.PI * 0.3],
+    [0.88, 0.78, 30, Math.PI * 1.8],
+    [0.78, 0.94, 22, Math.PI * 1.0],
+  ];
+  lilyPads  = spread.map(([ax, ay, r, g]) => new LilyPad(ax, ay, r, g));
+  lilyClump = clump.map(([ax, ay, r, g])  => new LilyPad(ax, ay, r, g));
+}
+
+// ─── DEBRIS (twigs + leaves drifting across water) ───────────────────────────
+class Debris {
+  constructor(offscreen = false) { this._init(offscreen); }
+  _init(offscreen = false) {
+    this.type  = Math.random() < 0.55 ? 'twig' : 'leaf';
+    this.side  = Math.random() < 0.5 ? -1 : 1;
+    this.speed = (0.006 + Math.random() * 0.01) * -this.side;
+    this.depthT = 0.1 + Math.random() * 0.85;
+    const waterH = H - SHORE_H - HORIZON_Y;
+    this.y = HORIZON_Y + waterH * (0.05 + this.depthT * 0.88);
+    this.x = offscreen ? (this.side < 0 ? W + 80 : -80) : Math.random() * W;
+    this.angle = (Math.random() - 0.5) * Math.PI * 0.6;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.006 + Math.random() * 0.012;
+    if (this.type === 'twig') {
+      this.length   = 18 + Math.random() * 28;
+      this.branches = Math.random() < 0.55;
+    } else {
+      this.rx = 7 + Math.random() * 9;
+      this.ry = 4 + Math.random() * 5;
+    }
+  }
+  reset() { this._init(true); }
+  update() {
+    this.wobble += this.wobbleSpeed;
+    this.x += this.speed + Math.sin(this.wobble) * 0.04;
+    this.angle += Math.sin(this.wobble * 0.7) * 0.002;
+    if (this.x < -100 || this.x > W + 100) this.reset();
+  }
+  draw(alpha) {
+    const leadAngle = this.speed < 0 ? 0 : Math.PI;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+    ctx.globalAlpha = alpha;
+    if (this.type === 'twig') {
+      const len = this.length;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(6,12,8,0.97)'; ctx.lineWidth = 1.5 + this.depthT * 1.2;
+      ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3;
+      ctx.beginPath(); ctx.moveTo(-len * 0.5, 0); ctx.lineTo(len * 0.5, 0); ctx.stroke();
+      if (this.branches) {
+        ctx.beginPath(); ctx.moveTo(-len * 0.1, 0); ctx.lineTo(-len * 0.1 - len * 0.25, -len * 0.18); ctx.stroke();
+      }
+      ctx.restore();
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(70,185,140,0.65)'; ctx.lineWidth = 1;
+      ctx.shadowColor = 'rgba(50,160,120,1)'; ctx.shadowBlur = 6; ctx.lineCap = 'round';
+      const hx = Math.cos(leadAngle) * len * 0.5;
+      ctx.beginPath(); ctx.moveTo(hx - 4, 0); ctx.lineTo(hx, 0); ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.save();
+      ctx.fillStyle = 'rgba(6,18,10,0.97)'; ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 3;
+      ctx.beginPath(); ctx.ellipse(0, 0, this.rx, this.ry, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(20,50,28,0.6)'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(-this.rx * 0.8, 0); ctx.lineTo(this.rx * 0.8, 0); ctx.stroke();
+      ctx.restore();
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(70,185,140,0.60)'; ctx.lineWidth = 1.2;
+      ctx.shadowColor = 'rgba(50,165,125,1)'; ctx.shadowBlur = 8;
+      const hA = leadAngle - Math.PI * 0.4, hB = leadAngle + Math.PI * 0.4;
+      ctx.beginPath();
+      for (let i = 0; i <= 12; i++) {
+        const a = hA + (hB - hA) * (i / 12);
+        const px = Math.cos(a) * this.rx, py = Math.sin(a) * this.ry;
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke(); ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+let debris = [];
+function initDebris() {
+  debris = Array.from({length: 8}, () => new Debris(false));
+}
+
 // ─── BRIDGE ───────────────────────────────────────────────────────────────────
 function drawBridge(alpha) {
   if (bridgeImg.naturalWidth <= 0) return;
@@ -333,6 +519,10 @@ function drawScene(now) {
 
   // Treeline
   drawTrees(skyAlpha);
+
+  // Cattails (left) and rushes (right) — fade in with water
+  drawCattails(waterAlpha);
+  drawRushes(waterAlpha);
 
   // Horizon line — thin bright seam
   ctx.save();
@@ -405,6 +595,12 @@ function drawScene(now) {
     ctx.lineTo(x, H - 40 + wave);
   }
   ctx.closePath(); ctx.fill(); ctx.restore();
+
+  // Debris + lily pads — drawn over water, fade in with it
+  const idxDt = 16; // approximate frame dt for update
+  for (const d of debris) { d.update(); d.draw(waterAlpha); }
+  for (const lp of lilyClump) { lp.update(idxDt); lp.draw(now, waterAlpha); }
+  for (const lp of lilyPads)  { lp.update(idxDt); lp.draw(now, waterAlpha); }
 
   // ── LETTERS ──────────────────────────────────────────────────────────────────
   if (!letters) buildLetters();
@@ -609,6 +805,8 @@ document.addEventListener('keydown', e => {
 
 // ─── START ────────────────────────────────────────────────────────────────────
 requestAnimationFrame(frame);
+initLilyPads();
+initDebris();
 
 const fadeEl = document.getElementById('fade');
 fadeEl.style.transition = 'opacity 1.6s ease';
