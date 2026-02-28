@@ -133,7 +133,11 @@ function playTypingClick() {
   } catch(e) { /* silent */ }
 }
 
-// ─── REARVIEW MIRROR — offscreen canvas ───────────────────────────────────────
+// ─── REARVIEW MIRROR — offscreen canvases ────────────────────────────────────
+// mirrorSceneCanvas: snapshot taken BEFORE car/moon are drawn
+const mirrorSceneCanvas = document.createElement('canvas');
+const msctx             = mirrorSceneCanvas.getContext('2d');
+// mirrorCanvas: the scaled, flipped, taillights-composited output
 const mirrorCanvas = document.createElement('canvas');
 const mctx         = mirrorCanvas.getContext('2d');
 
@@ -363,11 +367,15 @@ function drawRearviewMirror() {
   const carY  = H - ch;
   const scale = cw / carImg.naturalWidth;
 
-  // Mirror dimensions — proportional to car scale
-  const mw = W * 0.16;
-  const mh = mw * 0.38;
-  const mx = VP_X - mw * 0.5;                  // centered on VP_X
-  const my = carY + 310 * scale - mh;          // just above air freshener pivot
+  // Mirror dimensions — adjusted per measurements (1920px reference)
+  // ~100px wider total (60px left, 40px right), shifted left, dropped ~115px
+  const baseW  = W * 0.16;
+  const mw     = baseW + W * 0.052;            // +100px at 1920
+  const mh     = mw * 0.38;
+  // Center shifts left by (60-40)/2 * (W/1920) = 10px at 1920 → W*0.0052
+  const mx = VP_X - mw * 0.5 - W * 0.0052;
+  // Drop ~115px at 1080p → H*0.106
+  const my = carY + 310 * scale - mh + H * 0.106;
 
   // Size the offscreen canvas to the mirror footprint (render at half-res for perf)
   const rw = Math.ceil(mw * 0.6);
@@ -376,15 +384,12 @@ function drawRearviewMirror() {
     mirrorCanvas.width = rw; mirrorCanvas.height = rh;
   }
 
-  // Sample a horizontal strip of the scene centred on VP_X, flipped
-  // We pull from the top ~55% of the scene (sky + treeline + road receding away)
+  // Sample from the clean road-only snapshot (no car, no moon)
   mctx.save();
   mctx.clearRect(0, 0, rw, rh);
-  // Flip horizontally
   mctx.translate(rw, 0);
   mctx.scale(-1, 1);
-  // Draw source region: full width, top 55% of scene, scaled into mirror
-  mctx.drawImage(scene, 0, 0, W, H * 0.55, 0, 0, rw, rh);
+  mctx.drawImage(mirrorSceneCanvas, 0, 0, W, H * 0.55, 0, 0, rw, rh);
   mctx.restore();
 
   // Taillights gradient — red glow pooling at the bottom of the mirror
@@ -576,7 +581,7 @@ function drawMoon() {
   // Low in sky, near the bridge on the left — just risen over it
   const mx = W * 0.18;
   const my = VP_Y * 0.72;
-  const mr = W * 0.038; // fat prominent disc
+  const mr = W * 0.019; // smaller — matches scale of other scenes
 
   ctx.save();
 
@@ -759,7 +764,7 @@ function startTyping() {
     const ch = LINES[lineIndex].text[charIndex++];
     // Play a soft click for each visible character (skip spaces)
     if (ch !== ' ') playTypingClick();
-    const delay = 36
+    const delay = 54
       + (ch === ',' ? 190 : 0)
       + (ch === '.' ? 280 : 0)
       + (ch === '\u2026' ? 420 : 0);
@@ -914,6 +919,15 @@ function frame(now) {
   drawRoad();
   drawReflectors();
   drawHeadlightCones();
+
+  // Snapshot the scene here — road/sky/trees but NO car, NO moon
+  if (mirrorSceneCanvas.width !== W || mirrorSceneCanvas.height !== H) {
+    mirrorSceneCanvas.width = W; mirrorSceneCanvas.height = H;
+  }
+  msctx.clearRect(0, 0, W, H);
+  msctx.drawImage(scene, 0, 0);
+
+  drawMoon();
   drawAirFreshener();
   drawCar();
   drawRearviewMirror();
