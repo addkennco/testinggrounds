@@ -127,7 +127,7 @@ const ctx   = scene.getContext('2d');
 const post  = document.getElementById('post');
 const pctx  = post.getContext('2d');
 
-const SHORE_H = 110;
+const SHORE_H = 185;
 let W, H, HORIZON_Y, WATER_H;
 let _stars = null;
 
@@ -141,12 +141,14 @@ function resize() {
   WATER_H   = H - HORIZON_Y;
   _stars = null;
   if (lilyPads.length) initLilyPads();
+  if (lilyClump.length) initLilyClump();
 }
 window.addEventListener('resize', resize);
 
 // ─── ASSETS ───────────────────────────────────────────────────────────────────
 const bridgeImg   = new Image(); bridgeImg.src   = 'assets/bridge.png';
 const cattailsImg = new Image(); cattailsImg.src = 'assets/cattails.png';
+const rushesImg   = new Image(); rushesImg.src   = 'assets/rushes.png';
 const portraitImg = new Image(); portraitImg.src = 'assets/portrait.png';
 
 // ─── SCENE STATE ──────────────────────────────────────────────────────────────
@@ -167,6 +169,10 @@ const S = {
   ENDING:    13,
 };
 let ss = S.S3_INTRO; // current scene state
+
+// Sky phase transition — brief darkening when phase changes
+let _prevSkyPhase   = -1;
+let _phaseChangeNow = -99999;
 
 function skyPhase() {
   if (ss <= S.S3_AFTER)  return 0;  // dusk
@@ -265,11 +271,16 @@ function drawSky(now) {
 
   // Moon
   const mx = ph.moonX * W, my = ph.moonY * HORIZON_Y, mr = ph.moonR;
-  const halo = ctx.createRadialGradient(mx,my,mr*0.5, mx,my,mr*5.5);
-  halo.addColorStop(0, 'rgba(220,235,255,0.14)');
+  // Halo bloom — lighter composite makes it glow against the dark sky
+  const halo = ctx.createRadialGradient(mx,my,mr*0.5, mx,my,mr*6);
+  halo.addColorStop(0, 'rgba(220,235,255,0.22)');
+  halo.addColorStop(0.4, 'rgba(200,220,255,0.10)');
   halo.addColorStop(1, 'rgba(180,210,255,0)');
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
   ctx.fillStyle = halo;
-  ctx.beginPath(); ctx.arc(mx,my,mr*5.5,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(mx,my,mr*6,0,Math.PI*2); ctx.fill();
+  ctx.restore();
 
   const disc = ctx.createRadialGradient(mx-mr*0.25,my-mr*0.2,0, mx,my,mr);
   disc.addColorStop(0,'#f8faff'); disc.addColorStop(0.55,'#dde8f8'); disc.addColorStop(1,'#a8bcd8');
@@ -278,6 +289,15 @@ function drawSky(now) {
 
   drawTrees();
   drawCattails(now);
+
+  // Sky phase transition — brief darkening cross-fade
+  const curPhase = skyPhase();
+  if (curPhase !== _prevSkyPhase) { _prevSkyPhase = curPhase; _phaseChangeNow = now; }
+  const phaseT = Math.min(1, (now - _phaseChangeNow) / 2200);
+  if (phaseT < 1) {
+    const darkA = Math.pow(1 - phaseT, 1.8) * 0.72;
+    ctx.save(); ctx.fillStyle = `rgba(0,0,0,${darkA})`; ctx.fillRect(0,0,W,H); ctx.restore();
+  }
 }
 
 // ─── TREELINE ─────────────────────────────────────────────────────────────────
@@ -301,12 +321,23 @@ function drawTrees() {
 function drawCattails(now) {
   if (cattailsImg.naturalWidth <= 0) return;
   const aspect = cattailsImg.naturalWidth / cattailsImg.naturalHeight;
-  const ch = HORIZON_Y * 0.54;  // was 0.72, now 25% smaller
+  const ch = HORIZON_Y * 0.54;
   const cw = ch * aspect;
-  // Left cluster
-  ctx.save();
-  ctx.globalAlpha = 0.90;
+  ctx.save(); ctx.globalAlpha = 0.90;
   ctx.drawImage(cattailsImg, W*0.18 - cw*0.5, HORIZON_Y - ch + 8, cw, ch);
+  ctx.restore();
+}
+
+// ─── RUSHES (front-right shore) ──────────────────────────────────────────────
+function drawRushes() {
+  if (rushesImg.naturalWidth <= 0) return;
+  const aspect = rushesImg.naturalWidth / rushesImg.naturalHeight;
+  // Taller and sits lower — planted on the shore, not the treeline
+  const rh = HORIZON_Y * 0.68;
+  const rw = rh * aspect;
+  ctx.save(); ctx.globalAlpha = 0.88;
+  // Positioned front-right, partially off screen edge for depth
+  ctx.drawImage(rushesImg, W * 0.80, HORIZON_Y - rh * 0.55, rw, rh);
   ctx.restore();
 }
 
@@ -416,16 +447,16 @@ function drawHorizonShimmer(now) {
 function drawBottomShore(now) {
   const t = now*0.001;
   const sg = ctx.createLinearGradient(0,H-SHORE_H,0,H);
-  sg.addColorStop(0,'rgba(16,9,26,0)'); sg.addColorStop(0.18,'#18102a'); sg.addColorStop(1,'#0c0818');
+  sg.addColorStop(0,'rgba(16,9,26,0)'); sg.addColorStop(0.14,'#18102a'); sg.addColorStop(1,'#0c0818');
   ctx.fillStyle = sg;
-  ctx.beginPath(); ctx.moveTo(0,H); ctx.lineTo(W,H); ctx.lineTo(W,H-SHORE_H*0.72);
+  ctx.beginPath(); ctx.moveTo(0,H); ctx.lineTo(W,H); ctx.lineTo(W,H-SHORE_H*0.88);
   for (let x=W;x>=0;x-=30) {
     const wave=Math.sin((x/W)*Math.PI*4+t*0.5)*3+Math.sin((x/W)*Math.PI*9+t*0.8)*1.2;
-    ctx.lineTo(x,H-SHORE_H*0.72+wave);
+    ctx.lineTo(x,H-SHORE_H*0.88+wave);
   }
   ctx.closePath(); ctx.fill();
 
-  const shoreY = H-SHORE_H*0.72;
+  const shoreY = H-SHORE_H*0.88;
   const waves=[
     {offset:0,   f1:4.2,f2:9.1,a1:3.2,a2:1.4,s1:0.55,s2:0.82,lw:2.8,al:0.35,bl:12},
     {offset:6,   f1:3.8,f2:8.3,a1:2.8,a2:1.1,s1:0.42,s2:0.95,lw:1.8,al:0.24,bl:8 },
@@ -460,7 +491,7 @@ function drawBottomShore(now) {
 function drawShoes(now) {
   const t    = now * 0.001;
   const sway = Math.sin(t * 0.4) * 1.2;
-  const baseY = H - 4;
+  const baseY = H - SHORE_H * 0.32;   // shoes live well inside the shore band
   const cx    = W / 2;
   const gap   = 38;
   drawOneShoe(ctx, cx - gap, baseY, -1, sway * 0.6);
@@ -620,6 +651,8 @@ class LilyPad {
     const gapHalf=Math.PI*(40/360);
     const startA=orientation+gapHalf, endA=orientation+Math.PI*2-gapHalf;
     ctx.save(); ctx.translate(this.x,this.y);
+
+    // Dark body — nearly black-green
     ctx.beginPath(); ctx.moveTo(0,0);
     const steps=60;
     for (let i=0;i<=steps;i++) {
@@ -627,10 +660,42 @@ class LilyPad {
       ctx.lineTo(Math.cos(angle)*r, Math.sin(angle)*r*scaleY);
     }
     ctx.closePath();
-    const grad=ctx.createRadialGradient(0,0,0,0,0,r);
-    grad.addColorStop(0,'rgba(72,165,82,0.96)'); grad.addColorStop(0.5,'rgba(38,112,52,0.92)'); grad.addColorStop(1,'rgba(14,64,28,0.86)');
-    ctx.fillStyle=grad; ctx.fill();
-    ctx.strokeStyle='rgba(105,200,105,0.22)'; ctx.lineWidth=1; ctx.stroke();
+    const bodyGrad=ctx.createRadialGradient(0,0,0,0,0,r);
+    bodyGrad.addColorStop(0,'rgba(14,36,18,0.97)');
+    bodyGrad.addColorStop(0.6,'rgba(8,22,12,0.98)');
+    bodyGrad.addColorStop(1,'rgba(4,14,8,0.99)');
+    ctx.fillStyle=bodyGrad; ctx.fill();
+
+    // Leading-edge water highlight — bright arc on the side facing direction of travel
+    const leadAngle = this.speed < 0 ? Math.PI : 0;
+    const hlSpan = Math.PI * 0.55;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(80,200,150,0.7)';
+    ctx.lineWidth = 1.8 + this.baseRadius * 0.025;
+    ctx.shadowColor = 'rgba(60,180,130,1)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    let first=true;
+    const hSteps=24;
+    for (let i=0;i<=hSteps;i++) {
+      const angle=leadAngle-hlSpan+(hlSpan*2)*(i/hSteps);
+      const px=Math.cos(angle)*r, py=Math.sin(angle)*r*scaleY;
+      if(first){ctx.moveTo(px,py);first=false;}else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+
+    // Subtle secondary glow — full outline, dimmer
+    ctx.strokeStyle='rgba(40,130,90,0.22)';
+    ctx.lineWidth=1; ctx.shadowBlur=4;
+    ctx.beginPath(); ctx.moveTo(0,0);
+    for (let i=0;i<=steps;i++) {
+      const angle=startA+(endA-startA)*(i/steps);
+      ctx.lineTo(Math.cos(angle)*r,Math.sin(angle)*r*scaleY);
+    }
+    ctx.closePath(); ctx.stroke();
+    ctx.restore();
+
     ctx.restore();
   }
   hitTest(sx,sy) {
@@ -642,6 +707,120 @@ class LilyPad {
 let lilyPads = [];
 function initLilyPads() {
   lilyPads = Array.from({length:5},(_,i) => new LilyPad(W*0.08+(i/4)*W*0.84));
+}
+
+// ─── LILY PAD CLUMP (bottom-right) ───────────────────────────────────────────
+let lilyClump = [];
+function initLilyClump() {
+  lilyClump = [];
+  const clumpCount = 5 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < clumpCount; i++) {
+    const lp = new LilyPad(W * 0.62 + Math.random() * W * 0.28);
+    // Override to sit in the lower-right water zone
+    lp.depthT     = 0.55 + Math.random() * 0.40;
+    lp.y          = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * (0.62 + Math.random() * 0.32);
+    lp.baseRadius = 14 + lp.depthT * 28;
+    lp.speed      = (0.004 + Math.random() * 0.005) * (Math.random() < 0.5 ? -1 : 1);
+    lp.side       = lp.speed < 0 ? -1 : 1;
+    lilyClump.push(lp);
+  }
+}
+
+// ─── DEBRIS (twigs + leaves drifting across water) ───────────────────────────
+class Debris {
+  constructor(offscreen=false) { this._init(offscreen); }
+  _init(offscreen=false) {
+    this.type   = Math.random() < 0.55 ? 'twig' : 'leaf';
+    this.side   = Math.random() < 0.5 ? -1 : 1;
+    this.speed  = (0.006 + Math.random() * 0.01) * -this.side;
+    this.depthT = 0.1 + Math.random() * 0.85;
+    this.y      = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * (0.05 + this.depthT * 0.88);
+    this.x      = offscreen ? (this.side < 0 ? W + 80 : -80) : Math.random() * W;
+    this.angle  = (Math.random() - 0.5) * Math.PI * 0.6;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.006 + Math.random() * 0.012;
+    if (this.type === 'twig') {
+      this.length = 18 + Math.random() * 28;
+      this.branches = Math.random() < 0.55;
+    } else {
+      this.rx = 7 + Math.random() * 9;
+      this.ry = 4 + Math.random() * 5;
+    }
+  }
+  reset() { this._init(true); }
+  update() {
+    this.wobble += this.wobbleSpeed;
+    this.x += this.speed + Math.sin(this.wobble) * 0.04;
+    this.angle += Math.sin(this.wobble * 0.7) * 0.002;
+    if (this.x < -100 || this.x > W + 100) this.reset();
+  }
+  draw() {
+    const leadAngle = this.speed < 0 ? 0 : Math.PI; // edge facing direction of travel
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+
+    if (this.type === 'twig') {
+      const len = this.length;
+      // Dark body
+      ctx.save();
+      ctx.strokeStyle = 'rgba(6,12,8,0.97)';
+      ctx.lineWidth = 1.5 + this.depthT * 1.2;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 3;
+      ctx.beginPath(); ctx.moveTo(-len * 0.5, 0); ctx.lineTo(len * 0.5, 0);
+      ctx.stroke();
+      if (this.branches) {
+        ctx.beginPath(); ctx.moveTo(-len*0.1, 0); ctx.lineTo(-len*0.1 - len*0.25, -len*0.18);
+        ctx.stroke();
+      }
+      ctx.restore();
+      // Leading-edge water highlight
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(70,185,140,0.65)';
+      ctx.lineWidth = 1;
+      ctx.shadowColor = 'rgba(50,160,120,1)'; ctx.shadowBlur = 6;
+      ctx.lineCap = 'round';
+      const hx = Math.cos(leadAngle) * len * 0.5;
+      ctx.beginPath(); ctx.moveTo(hx - 4, 0); ctx.lineTo(hx, 0);
+      ctx.stroke();
+      ctx.restore();
+
+    } else {
+      // Leaf body — very dark
+      ctx.save();
+      ctx.fillStyle = 'rgba(6,18,10,0.97)';
+      ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 3;
+      ctx.beginPath(); ctx.ellipse(0, 0, this.rx, this.ry, 0, 0, Math.PI * 2); ctx.fill();
+      // Midrib
+      ctx.strokeStyle = 'rgba(20,50,28,0.6)'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(-this.rx * 0.8, 0); ctx.lineTo(this.rx * 0.8, 0); ctx.stroke();
+      ctx.restore();
+      // Leading-edge highlight
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(70,185,140,0.60)';
+      ctx.lineWidth = 1.2;
+      ctx.shadowColor = 'rgba(50,165,125,1)'; ctx.shadowBlur = 8;
+      const hA = leadAngle - Math.PI * 0.4;
+      const hB = leadAngle + Math.PI * 0.4;
+      ctx.beginPath();
+      for (let i = 0; i <= 12; i++) {
+        const a = hA + (hB - hA) * (i / 12);
+        const px = Math.cos(a) * this.rx, py = Math.sin(a) * this.ry;
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+
+let debris = [];
+function initDebris() {
+  debris = Array.from({length: 8}, () => new Debris(false));
 }
 
 // ─── RIPPLES + FLASH ──────────────────────────────────────────────────────────
@@ -1110,7 +1289,7 @@ const DLG_SIZE  = 28;
 const DLG_FONT  = `'Silkscreen', monospace`;
 
 // Dialogue Y: anchored in lower quarter, never drifts into the water
-function dlgY() { return Math.max(H * 0.72, H - 220); }
+function dlgY() { return Math.max(H * 0.75, H - 195); }
 
 let dlgLines    = [];
 let dlgIndex    = 0;
@@ -1233,18 +1412,25 @@ function drawDialogue(now) {
       ctx.fillStyle='#88b8d8';
       ctx.fillRect(tx+tw+3, ty+3, 4, DLG_SIZE-4);
     }
-    // "click to continue" hint
+    // "click to continue" — small downward triangle arrow with bob animation
     if (dlgReady) {
-      const pulse = 0.20 + 0.20*Math.abs(Math.sin(now*0.0016));
-      const hintY = ty + DLG_SIZE + 14;
-      ctx.globalAlpha = dlgAlpha * pulse;
-      ctx.font = `14px ${DLG_FONT}`;
-      ctx.shadowColor = 'rgba(130,180,240,0.80)'; ctx.shadowBlur = 10;
-      ctx.fillStyle   = 'rgba(130,180,220,0.60)';
-      ctx.fillText('click to continue', tx, hintY);
-      ctx.shadowBlur  = 4;
-      ctx.fillStyle   = 'rgba(160,200,240,0.90)';
-      ctx.fillText('click to continue', tx, hintY);
+      const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
+      const bob    = Math.sin(now * 0.0022) * 3.5;  // gentle vertical float
+      const arrowX = tx + 10;
+      const arrowY = ty + DLG_SIZE + 18 + bob;
+      const aw     = 9, ah = 6;  // half-width, height
+      ctx.save();
+      ctx.globalAlpha  = dlgAlpha * pulse;
+      ctx.shadowColor  = 'rgba(130,190,240,0.85)';
+      ctx.shadowBlur   = 10;
+      ctx.fillStyle    = 'rgba(160,210,245,0.90)';
+      ctx.beginPath();
+      ctx.moveTo(arrowX - aw, arrowY - ah);
+      ctx.lineTo(arrowX + aw, arrowY - ah);
+      ctx.lineTo(arrowX,      arrowY + ah * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
   }
   ctx.restore();
@@ -1257,21 +1443,22 @@ let arrowActive = false;
 function drawReturnArrow(now) {
   if (!arrowActive) return;
   arrowAlpha = Math.min(1, arrowAlpha+0.006);
+  const bob   = Math.sin(now * 0.0022) * 3.5;
   const pulse = 0.5 + 0.5*Math.abs(Math.sin(now*0.0014));
   const alpha = arrowAlpha * pulse;
-  // Big downward-pointing triangle centered at bottom-center of water area
-  const cx = W * 0.5;
-  const cy = H - SHORE_H - 28;
-  const size = 28;  // half-width of triangle
+  // Right side, vertically centered in the water zone
+  const cx   = W * 0.88;
+  const cy   = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * 0.5 + bob;
+  const size = 28;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.shadowColor = 'rgba(200,190,150,0.9)';
   ctx.shadowBlur  = 18;
   ctx.fillStyle   = 'rgba(215,205,165,0.92)';
   ctx.beginPath();
-  ctx.moveTo(cx - size, cy - size*0.8);
-  ctx.lineTo(cx + size, cy - size*0.8);
-  ctx.lineTo(cx,        cy + size*0.5);
+  ctx.moveTo(cx - size,   cy - size*0.8);
+  ctx.lineTo(cx + size,   cy - size*0.8);
+  ctx.lineTo(cx,          cy + size*0.5);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
@@ -1279,8 +1466,7 @@ function drawReturnArrow(now) {
 
 function arrowHitTest(mx,my) {
   if (!arrowActive) return false;
-  const cx = W*0.5, cy = H-SHORE_H-28, size=28;
-  // Loose bounding box hit test
+  const cx=W*0.88, cy=HORIZON_Y+(H-SHORE_H-HORIZON_Y)*0.5, size=28;
   return mx>cx-size-10 && mx<cx+size+10 && my>cy-size*0.8-10 && my<cy+size*0.5+10;
 }
 
@@ -1478,9 +1664,16 @@ function frame(now) {
   // Bottom shore + shoes
   drawBottomShore(now);
 
-  // Lily pads (back-to-front)
-  lilyPads.sort((a,b)=>a.y-b.y);
-  for (const lp of lilyPads) { lp.update(dt); lp.draw(); }
+  // Rushes — front-right shore vegetation, drawn over shore
+  drawRushes();
+
+  // Debris (twigs, leaves) — back-to-front with lily pads
+  for (const d of debris) { d.update(); d.draw(); }
+
+  // Lily pads — main spread + clump (all sorted back-to-front)
+  const allPads = [...lilyPads, ...lilyClump];
+  allPads.sort((a,b)=>a.y-b.y);
+  for (const lp of allPads) { lp.update(dt); lp.draw(); }
 
   // Fireflies
   drawFireflies(now);
@@ -1563,6 +1756,8 @@ document.addEventListener('touchend', e=>{
 // ─── START ────────────────────────────────────────────────────────────────────
 resize();              // must come first — sets W, H, HORIZON_Y
 initLilyPads();
+initLilyClump();
+initDebris();
 // Fireflies initialized AFTER resize() so W/H/HORIZON_Y are valid
 fireflies = Array.from({length:28}, ()=>new Firefly());
 requestAnimationFrame(frame);
