@@ -18,7 +18,7 @@
     align-items: center;
     justify-content: center;
   }
- 
+
   /* ── LAYER 2: 16:9 game container — canvases live here ── */
   #wrap {
     position: relative;
@@ -65,7 +65,7 @@
 <!-- overlay sits outside #wrap so it covers the full viewport -->
 <div id="overlay"></div>
 <script>
-// ─── AUDIO ──────────────────────────────────────────────────────────────────
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
 let AudioCtx = null;
 let drivingNode = null;
 
@@ -503,18 +503,6 @@ const DLG_FONT = `'Silkscreen', monospace`;
 
 // Dialogue Y: lower quarter of screen, anchored so it never drifts into the road
 function dlgY() { return Math.max(H * 0.75, H - 195); }
-
-let lineIndex   = 0;
-let charIndex   = 0;
-let typing      = false;
-let lineReady   = false;
-let typingTimer = null;
-let sceneEnding = false;
-let dlgVisible  = false;
-let dlgAlpha    = 0;
-let cursorOn    = true;
-let cursorMs    = 0;
-let lastFrameMs = 0;
 
 // Text drawn on ctx (scene canvas) so it lives UNDER post-processing dither
 function drawDialogue(now) {
