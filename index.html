@@ -18,7 +18,7 @@
     align-items: center;
     justify-content: center;
   }
- 
+
   /* ── LAYER 2: 16:9 game container — canvases live here ── */
   #wrap {
     position: relative;
@@ -41,15 +41,8 @@
     pointer-events: none; opacity: 1; z-index: 10;
   }
 
-  /* ── LAYER 3: overlay — fixed over everything, pointer-events:none ── */
-  #overlay {
-    position: fixed;
-    inset: 0;
-    width: 100vw; height: 100vh;
-    background: url('assets/overlay.png') center center / 100% 100% no-repeat;
-    pointer-events: none;
-    z-index: 9999;
-  }
+  /* overlay.png is composited onto the scene canvas before post-processing
+     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -59,8 +52,6 @@
   <div id="clicker"></div>
   <div id="fade"></div>
 </div>
-<!-- overlay sits outside #wrap so it covers the full viewport -->
-<div id="overlay"></div>
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
 let titleAudio = null;
@@ -132,8 +123,10 @@ window.addEventListener('resize', resize);
 resize();
 
 // ─── ASSETS ───────────────────────────────────────────────────────────────────
-const bridgeImg = new Image();
+const bridgeImg  = new Image();
 bridgeImg.src   = 'assets/bridge.png';
+const overlayImg = new Image();
+overlayImg.src  = 'assets/overlay.png';
 
 // ─── TIMING & PHASES ──────────────────────────────────────────────────────────
 // All timed in ms from scene start
@@ -486,10 +479,11 @@ function drawScene(now) {
   if (promptAlpha > 0) {
     clickReady = true;
     const pulse = 0.30 + 0.30 * Math.abs(Math.sin(now * 0.0018));
-    const promptY = HORIZON_Y + (H - HORIZON_Y) * 0.88; // anchored in water, not to H
+    const promptY = HORIZON_Y + (H - HORIZON_Y) * 0.42; // closer to the title letters
     ctx.save();
     ctx.globalAlpha  = promptAlpha * pulse;
-    ctx.font         = `18px 'Silkscreen', monospace`;
+    const promptFs   = Math.max(18, Math.round(W * 0.016));
+    ctx.font         = `${promptFs}px 'Silkscreen', monospace`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
     // Double-draw glow so it survives the dither pass
@@ -527,6 +521,14 @@ function applyPost() {
   if (offscreen.width!==pw||offscreen.height!==ph) {
     offscreen.width=pw; offscreen.height=ph; postImageData=null;
   }
+  // Stamp overlay.png onto scene canvas so it gets dithered with everything else
+  if (overlayImg.naturalWidth > 0) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(overlayImg, 0, 0, W, H);
+    ctx.restore();
+  }
+
   octx.clearRect(0,0,pw,ph);
   octx.drawImage(scene,0,0,pw,ph);
   const src=octx.getImageData(0,0,pw,ph), sd=src.data;
