@@ -45,16 +45,8 @@
   #fade.clear { opacity: 0; }
   #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
 
-  /* ── LAYER 3: overlay — fixed over everything, pointer-events:none ── */
-  /* Bleeds inward over the game edges with the ragged/skeuomorphic border */
-  #overlay {
-    position: fixed;
-    inset: 0;
-    width: 100vw; height: 100vh;
-    background: url('assets/overlay.png') center center / 100% 100% no-repeat;
-    pointer-events: none;
-    z-index: 9999;
-  }
+  /* overlay.png is composited onto the scene canvas before post-processing
+     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -64,8 +56,6 @@
   <div id="clicker"></div>
   <div id="fade"></div>
 </div>
-<!-- overlay sits outside #wrap so it covers the full viewport -->
-<div id="overlay"></div>
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
 let fenceAudioCtx = null;
@@ -106,9 +96,35 @@ window.addEventListener('resize', resize);
 resize();
 
 // ─── ASSETS ───────────────────────────────────────────────────────────────────
-const fenceImg = new Image(); fenceImg.src = 'assets/fence.png';
+const fenceImg    = new Image(); fenceImg.src    = 'assets/fence.png';
+const overlayImg  = new Image(); overlayImg.src  = 'assets/overlay.png';
 const poleImg  = new Image(); poleImg.src  = 'assets/utilitypole.png';
 const treeImg  = new Image(); treeImg.src  = 'assets/tree.png';
+
+
+// ─── TYPING SOUND — synthesized click, no asset needed ────────────────────────
+function playTypingClick() {
+  if (!fenceAudioCtx) return;
+  try {
+    const t    = fenceAudioCtx.currentTime;
+    const buf  = fenceAudioCtx.createBuffer(1, Math.floor(fenceAudioCtx.sampleRate * 0.012), fenceAudioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.18));
+    }
+    const src  = fenceAudioCtx.createBufferSource();
+    const gain = fenceAudioCtx.createGain();
+    const filt = fenceAudioCtx.createBiquadFilter();
+    filt.type            = 'bandpass';
+    filt.frequency.value = 1800;
+    filt.Q.value         = 0.8;
+    src.buffer = buf;
+    src.connect(filt); filt.connect(gain); gain.connect(fenceAudioCtx.destination);
+    gain.gain.setValueAtTime(0.09, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.012);
+    src.start(t);
+  } catch(e) { /* silent */ }
+}
 
 // ─── PARALLAX STATE ───────────────────────────────────────────────────────────
 // fence: slow zoom-in toward viewer
@@ -276,44 +292,45 @@ function drawTree() {
 // dither pass, so it pixelates with everything else. Silkscreen is a proper
 // pixel font so it survives the quantization and looks intentional.
 
-const LINES = [
+const FENCE_LINES = [
   { text: "I don't remember who made this.", italic: false },
   { text: "If it was you or me.", italic: false },
   { text: "But I remember how you got that scar", italic: false },
   { text: "That late night in August.", italic: false },
-  // null text = choice card
   { text: null, choice: true, options: [
     "It's strange, what stays with you.",
     "It feels like it was only yesterday.",
   ]},
 ];
+let dlgLines = [];
 
-const FONT_SIZE = 28;   // rendered at full res → gets pixelated by dither
-const FONT      = `'Silkscreen', monospace`;
+const DLG_SIZE  = 28;
+const DLG_FONT  = `'Silkscreen', monospace`;
 
 // Dialogue Y: sits in the lower quarter of the screen, always clear of the ground
 // Using H * 0.76 as a floor so it never rides up into the scene at tall viewports
-function dlgY() { return Math.max(H * 0.75, H - 195); }
-function choiceBaseY() { return dlgY(); }
+function dlgY() { return Math.max(H * 0.78, H - 165); }
 
-let lineIndex   = 0;
-let charIndex   = 0;
-let typing      = false;
-let lineReady   = false;
-let typingTimer = null;
+let dlgIndex    = 0;
+let dlgChar     = 0;
+let dlgTyping   = false;
+let dlgReady    = false;
+let dlgTimer    = null;
 let sceneEnding = false;
 let cursorOn    = true;
 let cursorMs    = 0;
 let lastFrameMs = 0;
 let choiceHover = -1;
 let mouseY      = 0;
+let dlgFading   = false;
 
 // ─── CHOICE CARDS ─────────────────────────────────────────────────────────────
 function getChoiceRects() {
-  const opts  = LINES[LINES.length - 1].options;
-  const rowH  = FONT_SIZE + 28;
+  const choiceLine = dlgLines.find(l => l.choice);
+  const opts  = choiceLine ? choiceLine.options : [];
+  const rowH  = DLG_SIZE + 28;
   const tx    = W * 0.09;
-  const baseY = choiceBaseY();
+  const baseY = dlgY();
   return opts.map((text, i) => ({
     bx: tx,
     by: baseY + i * (rowH + 10),
@@ -330,7 +347,7 @@ function drawDialogue(now) {
   cursorMs = (cursorMs + dtMs) % 1000;
   cursorOn  = cursorMs < 520;
 
-  const line = LINES[lineIndex];
+  const line = dlgLines[dlgIndex];
   if (!line) return;
 
   // ── CHOICE SCREEN ──
@@ -340,7 +357,7 @@ function drawDialogue(now) {
       const { bx, by, bw, bh, text } = rects[i];
       const hover = i === choiceHover;
       ctx.save();
-      ctx.font         = `${FONT_SIZE}px ${FONT}`;
+      ctx.font         = `${DLG_SIZE}px ${DLG_FONT}`;
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'middle';
       // Double-draw glow so choices survive dither
@@ -358,11 +375,11 @@ function drawDialogue(now) {
 
   // ── NORMAL LINE ──
   ctx.save();
-  const displayed = line.text.slice(0, charIndex);
+  const displayed = line.text.slice(0, dlgChar);
   const tx = W * 0.09;
   const ty = dlgY();
 
-  ctx.font         = `${line.italic ? 'italic ' : ''}${FONT_SIZE}px ${FONT}`;
+  ctx.font         = `${line.italic ? 'italic ' : ''}${DLG_SIZE}px ${DLG_FONT}`;
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
 
@@ -385,20 +402,21 @@ function drawDialogue(now) {
   }
 
   // Blinking cursor
-  if (lineReady && cursorOn) {
+  if (dlgReady && cursorOn) {
     const tw = ctx.measureText(displayed).width;
     ctx.shadowBlur  = 6;
     ctx.shadowColor = 'rgba(130,190,240,0.8)';
     ctx.fillStyle   = '#88b8d8';
-    ctx.fillRect(tx + tw + 3, ty + 2, 4, FONT_SIZE - 2);
+    ctx.fillRect(tx + tw + 3, ty + 2, 4, DLG_SIZE - 2);
   }
 
-  // "click to continue" — small downward triangle arrow with bob
-  if (lineReady) {
+  // "click to continue" — arrow tethered just below the blinking cursor
+  if (dlgReady) {
     const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
     const bob    = Math.sin(now * 0.0022) * 3.5;
-    const arrowX = tx + 10;
-    const arrowY = ty + FONT_SIZE + 18 + bob;
+    const tw     = ctx.measureText(displayed).width;
+    const arrowX = tx + tw + 3 + 2;
+    const arrowY = ty + DLG_SIZE + 14 + bob;
     const aw = 9, ah = 6;
     ctx.save();
     ctx.globalAlpha  = pulse;
@@ -417,45 +435,62 @@ function drawDialogue(now) {
 }
 
 // ─── TYPING ───────────────────────────────────────────────────────────────────
-function startTyping() {
-  if (lineIndex >= LINES.length) { endScene(); return; }
-  const line = LINES[lineIndex];
-  if (line.choice) { return; } // choices don't type in
+function typeNextLine() {
+  const line = dlgLines[dlgIndex];
+  if (!line) { endScene(); return; }
+  if (line.choice) { dlgFading = false; return; } // choices rendered directly
 
-  charIndex = 0;
-  typing    = true;
-  lineReady = false;
+  dlgFading = false;
+  dlgChar   = 0;
+  dlgTyping = true;
+  dlgReady  = false;
 
   function tick() {
-    if (charIndex >= line.text.length) {
-      typing = false; lineReady = true; return;
+    if (dlgChar >= line.text.length) {
+      dlgTyping = false; dlgReady = true; return;
     }
-    const ch  = line.text[charIndex++];
-    const del = 40
+    const ch  = line.text[dlgChar++];
+    if (ch !== ' ') playTypingClick();
+    const del = 54
       + (ch === ',' ? 210 : 0)
       + (ch === '.' ? 290 : 0)
       + (ch === '\u2026' ? 430 : 0);
-    typingTimer = setTimeout(tick, del);
+    dlgTimer = setTimeout(tick, del);
   }
   tick();
 }
 
-function advance() {
-  if (sceneEnding) return;
-  const line = LINES[lineIndex];
+function startDialogue(lines, callback) {
+  dlgLines  = lines;
+  dlgIndex  = 0;
+  dlgFading = false;
+  typeNextLine();
+}
+
+function advanceDlg() {
+  if (sceneEnding || dlgFading) return;
+  const line = dlgLines[dlgIndex];
   if (line && line.choice) return; // choices only via click
-  if (typing) {
-    clearTimeout(typingTimer);
-    charIndex = line.text.length;
-    typing = false; lineReady = true;
+  if (dlgTyping) {
+    clearTimeout(dlgTimer);
+    dlgChar   = line.text.length;
+    dlgTyping = false; dlgReady = true;
     return;
   }
-  if (lineReady) { lineIndex++; startTyping(); }
+  if (dlgReady) {
+    dlgFading = true;
+    dlgReady  = false;
+    setTimeout(() => {
+      dlgIndex++;
+      dlgFading = false;
+      typeNextLine();
+    }, 160);
+  }
 }
 
 // ─── CHOICE CLICK ─────────────────────────────────────────────────────────────
 function handleClick(mx, my) {
-  const line = LINES[lineIndex];
+  const line = dlgLines[dlgIndex];
   if (line && line.choice) {
     const rects = getChoiceRects();
     for (const { bx, by, bw, bh } of rects) {
@@ -464,12 +499,12 @@ function handleClick(mx, my) {
       }
     }
   } else {
-    advance();
+    advanceDlg();
   }
 }
 
 function handleMouseMove(mx, my) {
-  const line = LINES[lineIndex];
+  const line = dlgLines[dlgIndex];
   if (!line || !line.choice) { choiceHover = -1; return; }
   const rects = getChoiceRects();
   choiceHover = -1;
@@ -517,6 +552,14 @@ function applyPost() {
     offscreen.width  = pw;
     offscreen.height = ph;
     postImageData    = null;
+  }
+
+  // Stamp overlay.png onto scene canvas so it gets dithered with everything else
+  if (overlayImg.naturalWidth > 0) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(overlayImg, 0, 0, W, H);
+    ctx.restore();
   }
 
   octx.clearRect(0, 0, pw, ph);
@@ -619,7 +662,7 @@ document.getElementById('clicker').addEventListener('mousemove', e => {
   handleMouseMove(e.clientX, e.clientY);
 });
 document.addEventListener('keydown', e => {
-  if (e.key === ' ' || e.key === 'Enter') advance();
+  if (e.key === ' ' || e.key === 'Enter') advanceDlg();
 });
 document.addEventListener('touchend', e => {
   e.preventDefault();
@@ -632,7 +675,7 @@ requestAnimationFrame(frame);
 const fadeEl = document.getElementById('fade');
 setTimeout(() => {
   fadeEl.classList.add('clear');
-  setTimeout(startTyping, 1500);
+  setTimeout(() => startDialogue(FENCE_LINES), 1500);
 }, 100);
 </script>
 </body>
