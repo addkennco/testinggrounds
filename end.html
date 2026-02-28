@@ -105,12 +105,14 @@ function resize() {
   scene.width=post.width=W; scene.height=post.height=H;
   HORIZON_Y=Math.round(H*0.46); WATER_H=H-HORIZON_Y; _stars=null;
   if (lilyPads.length) initLilyPads();
+  if (debris.length)   initDebris();
 }
 window.addEventListener('resize',resize);
 
 // ─── ASSETS ───────────────────────────────────────────────────────────────────
 const bridgeImg=new Image(); bridgeImg.src='assets/bridge.png';
 const cattailsImg=new Image(); cattailsImg.src='assets/cattails.png';
+const rushesImg=new Image(); rushesImg.src='assets/rushes.png';
 
 // ─── END STATE ────────────────────────────────────────────────────────────────
 // CREDITS → (choiceAlpha rises) → click → ETERNAL or title.html
@@ -187,6 +189,77 @@ function drawCattails(now) {
   const aspect=cattailsImg.naturalWidth/cattailsImg.naturalHeight, ch=HORIZON_Y*0.54, cw=ch*aspect;
   ctx.save(); ctx.globalAlpha=0.90; ctx.drawImage(cattailsImg,W*0.18-cw*0.5,HORIZON_Y-ch+8,cw,ch); ctx.restore();
 }
+
+function drawRushes() {
+  if (rushesImg.naturalWidth<=0) return;
+  const aspect=rushesImg.naturalWidth/rushesImg.naturalHeight;
+  const rh=HORIZON_Y*0.68, rw=rh*aspect;
+  ctx.save(); ctx.globalAlpha=0.88; ctx.drawImage(rushesImg,W*0.80,HORIZON_Y-rh*0.55,rw,rh); ctx.restore();
+}
+
+// ─── DEBRIS (twigs + leaves drifting across water) ───────────────────────────
+class Debris {
+  constructor(offscreen=false) { this._init(offscreen); }
+  _init(offscreen=false) {
+    this.type   = Math.random() < 0.55 ? 'twig' : 'leaf';
+    this.side   = Math.random() < 0.5 ? -1 : 1;
+    this.speed  = (0.006 + Math.random() * 0.01) * -this.side;
+    this.depthT = 0.1 + Math.random() * 0.85;
+    this.y      = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * (0.05 + this.depthT * 0.88);
+    this.x      = offscreen ? (this.side < 0 ? W + 80 : -80) : Math.random() * W;
+    this.angle  = (Math.random() - 0.5) * Math.PI * 0.6;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.006 + Math.random() * 0.012;
+    if (this.type === 'twig') {
+      this.length = 18 + Math.random() * 28;
+      this.branches = Math.random() < 0.55;
+    } else {
+      this.rx = 7 + Math.random() * 9;
+      this.ry = 4 + Math.random() * 5;
+    }
+  }
+  reset() { this._init(true); }
+  update() {
+    this.wobble += this.wobbleSpeed;
+    this.x += this.speed + Math.sin(this.wobble) * 0.04;
+    this.angle += Math.sin(this.wobble * 0.7) * 0.002;
+    if (this.x < -100 || this.x > W + 100) this.reset();
+  }
+  draw() {
+    const leadAngle = this.speed < 0 ? 0 : Math.PI;
+    ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+    if (this.type === 'twig') {
+      const len = this.length;
+      ctx.save();
+      ctx.strokeStyle='rgba(6,12,8,0.97)'; ctx.lineWidth=1.5+this.depthT*1.2;
+      ctx.lineCap='round'; ctx.shadowColor='rgba(0,0,0,0.8)'; ctx.shadowBlur=3;
+      ctx.beginPath(); ctx.moveTo(-len*0.5,0); ctx.lineTo(len*0.5,0); ctx.stroke();
+      if (this.branches) { ctx.beginPath(); ctx.moveTo(-len*0.1,0); ctx.lineTo(-len*0.1-len*0.25,-len*0.18); ctx.stroke(); }
+      ctx.restore();
+      ctx.save(); ctx.globalCompositeOperation='lighter';
+      ctx.strokeStyle='rgba(70,185,140,0.65)'; ctx.lineWidth=1;
+      ctx.shadowColor='rgba(50,160,120,1)'; ctx.shadowBlur=6; ctx.lineCap='round';
+      const hx=Math.cos(leadAngle)*len*0.5;
+      ctx.beginPath(); ctx.moveTo(hx-4,0); ctx.lineTo(hx,0); ctx.stroke(); ctx.restore();
+    } else {
+      ctx.save();
+      ctx.fillStyle='rgba(6,18,10,0.97)'; ctx.shadowColor='rgba(0,0,0,0.7)'; ctx.shadowBlur=3;
+      ctx.beginPath(); ctx.ellipse(0,0,this.rx,this.ry,0,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(20,50,28,0.6)'; ctx.lineWidth=0.6;
+      ctx.beginPath(); ctx.moveTo(-this.rx*0.8,0); ctx.lineTo(this.rx*0.8,0); ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.globalCompositeOperation='lighter';
+      ctx.strokeStyle='rgba(70,185,140,0.60)'; ctx.lineWidth=1.2;
+      ctx.shadowColor='rgba(50,165,125,1)'; ctx.shadowBlur=8;
+      const hA=leadAngle-Math.PI*0.4, hB=leadAngle+Math.PI*0.4;
+      ctx.beginPath();
+      for (let i=0;i<=12;i++) { const a=hA+(hB-hA)*(i/12); const px=Math.cos(a)*this.rx, py=Math.sin(a)*this.ry; i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); }
+      ctx.stroke(); ctx.restore();
+    }
+    ctx.restore();
+  }
+}
+let debris=[];
+function initDebris() { debris=Array.from({length:8},()=>new Debris(false)); }
 
 function drawBridge() {
   if (bridgeImg.naturalWidth<=0) return;
@@ -397,7 +470,7 @@ function throwStone(targetX){
   if(stoneState!=='idle'||endState!=='ETERNAL') return;
   stoneState='throwing';
   const maxSkips=2+Math.floor(Math.random()*5);
-  const startX=W*0.35+(targetX-W*0.35)*0.07;
+  const startX=W*0.5+(targetX-W*0.5)*0.07;
   const nearY=HORIZON_Y+(H-SHORE_H-HORIZON_Y)*0.88, farY=HORIZON_Y+WATER_H*0.10;
   const skips=[];
   for(let i=0;i<=maxSkips;i++){const t=(i+1)/(maxSkips+1);skips.push({x:startX+(targetX-startX)*Math.pow(t,0.88),y:nearY+(farY-nearY)*Math.pow(t,1.25),arcH:(88-62*t)*(1-t*0.22)});}
@@ -560,6 +633,8 @@ function frame(now){
   const dt=Math.min(now-lastFrameT,50); lastFrameT=now;
   ctx.clearRect(0,0,W,H);
   drawSky(now); drawWater(now); drawBridge(); drawBottomShore(now);
+  drawRushes();
+  for(const d of debris){d.update();d.draw();}
   lilyPads.sort((a,b)=>a.y-b.y);
   for(const lp of lilyPads){lp.update(dt);lp.draw(now);}
   for(const f of fireflies){f.update();f.draw(now);}
@@ -573,10 +648,16 @@ function frame(now){
 
 // ─── INPUT ────────────────────────────────────────────────────────────────────
 document.getElementById('clicker').addEventListener('mousemove',e=>{
-  if(endState==='ETERNAL') return;
+  if(endState==='ETERNAL'){
+    // Check arrow hover
+    const ax=W*0.5, ay=H-SHORE_H*0.82, size=28;
+    const overArrow=eternalThrows>=3 && e.clientX>ax-size-10 && e.clientX<ax+size+10 && e.clientY>ay-size*0.8-10 && e.clientY<ay+size*0.5+10;
+    document.getElementById('clicker').style.cursor=overArrow?'none':'default';
+    return;
+  }
   const rects=getChoiceRects(); choiceHover=-1;
   rects.forEach(({bx,by,bw,bh},i)=>{if(e.clientX>=bx&&e.clientX<=bx+bw&&e.clientY>=by&&e.clientY<=by+bh)choiceHover=i;});
-  document.getElementById('clicker').style.cursor='default';
+  document.getElementById('clicker').style.cursor=choiceHover!==-1?'none':'default';
 });
 
 document.getElementById('clicker').addEventListener('click',e=>{
@@ -616,6 +697,7 @@ document.addEventListener('touchend',e=>{
 // ─── START ────────────────────────────────────────────────────────────────────
 resize();
 initLilyPads();
+initDebris();
 fireflies=Array.from({length:28},()=>new Firefly());
 requestAnimationFrame(frame);
 
