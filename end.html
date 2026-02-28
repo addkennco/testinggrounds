@@ -48,7 +48,7 @@
 </div>
 <div id="overlay"></div>
 <script>
-// ─── AUDIO ───────────────────────────────────────────────────────────────────
+// ─── AUDIO ────────────────────────────────────────────────────────────────────
 const Audio = {
   ctx: null, nodes: {},
   init() { if (this.ctx) return; this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
@@ -118,6 +118,7 @@ let endState='CREDITS';
 let sceneStart=null;
 let creditsAlpha=0, choiceAlpha=0, choiceHover=-1;
 let lastFrameT=0;
+let eternalThrows=0, eternalArrowAlpha=0;
 
 // ─── PERLIN NOISE ─────────────────────────────────────────────────────────────
 function pfade(t) { return t*t*t*(t*(t*6-15)+10); }
@@ -154,13 +155,7 @@ function drawSky(now) {
     ctx.save(); ctx.globalAlpha=tw; ctx.fillStyle='#cce2ff'; ctx.shadowColor='#98bcff'; ctx.shadowBlur=3;
     ctx.beginPath(); ctx.arc(st.x*W,st.y*HORIZON_Y,st.s,0,Math.PI*2); ctx.fill(); ctx.restore();
   }
-  const mx=NIGHT.moonX*W,my=NIGHT.moonY*HORIZON_Y,mr=NIGHT.moonR;
-  const halo=ctx.createRadialGradient(mx,my,mr*0.5,mx,my,mr*5.5);
-  halo.addColorStop(0,'rgba(220,235,255,0.14)'); halo.addColorStop(1,'rgba(180,210,255,0)');
-  ctx.fillStyle=halo; ctx.beginPath(); ctx.arc(mx,my,mr*5.5,0,Math.PI*2); ctx.fill();
-  const disc=ctx.createRadialGradient(mx-mr*0.25,my-mr*0.2,0,mx,my,mr);
-  disc.addColorStop(0,'#f8faff'); disc.addColorStop(0.55,'#dde8f8'); disc.addColorStop(1,'#a8bcd8');
-  ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(mx,my,mr,0,Math.PI*2); ctx.fill();
+  // Moon is behind the player at this hour — not drawn
   drawTrees(); drawCattails(now);
 }
 
@@ -192,7 +187,7 @@ function drawWater(now) {
   const grad=ctx.createLinearGradient(0,HORIZON_Y,0,H-SHORE_H);
   grad.addColorStop(0,NIGHT.waterTop); grad.addColorStop(0.5,NIGHT.waterMid); grad.addColorStop(1,NIGHT.waterMid);
   ctx.fillStyle=grad; ctx.fillRect(0,HORIZON_Y,W,WATER_H);
-  drawHillReflection(now); drawMoonReflection(now); drawHorizonShimmer(now);
+  drawHillReflection(now); drawHorizonShimmer(now);
 }
 
 function drawHillReflection(now) {
@@ -209,28 +204,7 @@ function drawHillReflection(now) {
   ctx.globalAlpha=1; ctx.fillStyle=fade2; ctx.fillRect(0,HORIZON_Y,W,reflH); ctx.restore();
 }
 
-const _moonOff=document.createElement('canvas'), _moonCtx=_moonOff.getContext('2d');
-function drawMoonReflection(now) {
-  const t=now*0.001, moonX=NIGHT.moonX*W, reflTop=HORIZON_Y, reflBot=H-SHORE_H, reflLen=reflBot-reflTop;
-  const colWideBot=100+Math.sin(t*0.7)*12, colWideTop=24+Math.sin(t*0.5)*5, maxW=Math.ceil(colWideBot+20);
-  if(_moonOff.width!==maxW||_moonOff.height!==1){
-    _moonOff.width=maxW; _moonOff.height=1;
-    const g=_moonCtx.createLinearGradient(0,0,maxW,0);
-    g.addColorStop(0,'rgba(200,220,255,0)'); g.addColorStop(0.22,'rgba(210,228,255,0.16)');
-    g.addColorStop(0.5,'rgba(230,240,255,0.22)'); g.addColorStop(0.78,'rgba(210,228,255,0.16)');
-    g.addColorStop(1,'rgba(200,220,255,0)'); _moonCtx.fillStyle=g; _moonCtx.fillRect(0,0,maxW,1);
-  }
-  const SLICES=40, sliceH=reflLen/SLICES+1;
-  for(let si=0;si<SLICES;si++){
-    const vt=si/SLICES, vy=reflTop+vt*reflLen, colW=lerp(colWideTop,colWideBot,vt);
-    const n1=perlin2(vt*3.5+t*0.18,t*0.09), noiseMod=0.4+0.6*(n1*0.5+0.5);
-    const baseAlpha=0.18*Math.sin(vt*Math.PI)*(1-vt*0.4), alpha=baseAlpha*noiseMod;
-    if(alpha<0.005) continue;
-    const hShimmer=perlin2(vt*2.2+10,t*0.22)*colW*0.35, lx=moonX-colW*0.5+hShimmer;
-    ctx.globalAlpha=alpha/0.22; ctx.drawImage(_moonOff,0,0,maxW,1,lx,vy,colW,sliceH);
-  }
-  ctx.globalAlpha=1;
-}
+// Moon is behind the player at this hour — reflection not drawn
 
 function drawHorizonShimmer(now) {
   const t=now*0.001; ctx.save(); ctx.beginPath(); ctx.moveTo(0,HORIZON_Y+1);
@@ -259,7 +233,7 @@ function drawBottomShore(now) {
 }
 
 function drawShoes(now) {
-  const t=now*0.001,sway=Math.sin(t*0.4)*1.2,baseY=H-4,cx=W/2,gap=38;
+  const t=now*0.001,sway=Math.sin(t*0.4)*1.2,baseY=H-4,cx=W*0.35,gap=38;
   drawOneShoe(ctx,cx-gap,baseY,-1,sway*0.6); drawOneShoe(ctx,cx+gap,baseY,1,sway*0.4);
 }
 function drawOneShoe(ctx,cx,baseY,dir,sway) {
@@ -305,37 +279,59 @@ class Firefly {
 let fireflies=[];
 
 // ─── LILY PADS ────────────────────────────────────────────────────────────────
+// Stable clump in bottom-left + a couple loose pads mid-water.
+// No lateral drift — they bob gently in place like rooted plants.
 class LilyPad {
-  constructor(sx) { this._ix=sx; this._init(true); }
-  _init(use) {
-    this.depthT=0.12+Math.random()*0.76;
-    this.y=HORIZON_Y+(H-SHORE_H-HORIZON_Y)*(0.08+this.depthT*0.76);
-    this.baseRadius=18+this.depthT*38; this.side=Math.random()<0.5?-1:1;
-    this.speed=(0.008+Math.random()*0.008)*-this.side;
-    this.gapAngle=Math.PI*0.5+(Math.random()-0.5)*0.7; this.wobble=0;
-    this.x=use?this._ix:(this.side<0?-100:W+100);
+  constructor(ax, ay, radius, gapAngle) {
+    this.ax=ax; this.ay=ay;          // anchor position (proportional, resolved in draw)
+    this.baseRadius=radius;
+    this.gapAngle=gapAngle;
+    this.phase=Math.random()*Math.PI*2;
+    this.bobSpeed=0.0004+Math.random()*0.0003;
+    this.bobAmp=1.2+Math.random()*1.8;
+    this.wobble=0;
   }
-  reset(){this._init(false);}
   update(dt){
-    this.x+=this.speed*dt;
     if(this.wobble>0){this.wobble-=dt*0.0012;if(this.wobble<0)this.wobble=0;}
-    if(this.x<-280||this.x>W+280) this.reset();
   }
-  draw(){
-    const r=this.baseRadius,scaleY=0.38+this.depthT*0.12;
-    const ws=Math.sin(this.wobble*Math.PI)*0.28, ori=this.gapAngle+ws, gh=Math.PI*(40/360);
+  draw(now){
+    const x=this.ax*W, y=HORIZON_Y+(H-SHORE_H-HORIZON_Y)*this.ay;
+    const bob=Math.sin(now*this.bobSpeed+this.phase)*this.bobAmp;
+    const r=this.baseRadius, scaleY=0.38;
+    const ws=Math.sin(this.wobble*Math.PI)*0.28;
+    const ori=this.gapAngle+ws, gh=Math.PI*(40/360);
     const startA=ori+gh, endA=ori+Math.PI*2-gh;
-    ctx.save(); ctx.translate(this.x,this.y); ctx.beginPath(); ctx.moveTo(0,0);
+    ctx.save(); ctx.translate(x, y+bob); ctx.beginPath(); ctx.moveTo(0,0);
     for(let i=0;i<=60;i++){const a=startA+(endA-startA)*(i/60);ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r*scaleY);}
     ctx.closePath();
     const g=ctx.createRadialGradient(0,0,0,0,0,r);
     g.addColorStop(0,'rgba(72,165,82,0.96)'); g.addColorStop(0.5,'rgba(38,112,52,0.92)'); g.addColorStop(1,'rgba(14,64,28,0.86)');
-    ctx.fillStyle=g; ctx.fill(); ctx.strokeStyle='rgba(105,200,105,0.22)'; ctx.lineWidth=1; ctx.stroke(); ctx.restore();
+    ctx.fillStyle=g; ctx.fill(); ctx.restore();
   }
-  hitTest(sx,sy){const dx=sx-this.x,dy=sy-this.y,r=this.baseRadius*1.1,ry=r*0.38;return(dx*dx)/(r*r)+(dy*dy)/(ry*ry)<1;}
+  hitTest(sx,sy){
+    const x=this.ax*W, y=HORIZON_Y+(H-SHORE_H-HORIZON_Y)*this.ay;
+    const dx=sx-x, dy=sy-y, r=this.baseRadius*1.1, ry=r*0.38;
+    return(dx*dx)/(r*r)+(dy*dy)/(ry*ry)<1;
+  }
 }
 let lilyPads=[];
-function initLilyPads(){lilyPads=Array.from({length:5},(_,i)=>new LilyPad(W*0.08+(i/4)*W*0.84));}
+function initLilyPads(){
+  // Clump: bottom-left, overlapping pads of varying size
+  const clump=[
+    [0.10, 0.82, 42, Math.PI*0.6],
+    [0.14, 0.88, 36, Math.PI*1.1],
+    [0.07, 0.90, 28, Math.PI*0.3],
+    [0.18, 0.78, 32, Math.PI*1.7],
+    [0.12, 0.94, 22, Math.PI*0.9],
+    [0.05, 0.84, 20, Math.PI*1.4],
+  ];
+  // A couple of lone pads drifting mid-water
+  const loose=[
+    [0.52, 0.45, 26, Math.PI*0.5],
+    [0.68, 0.62, 30, Math.PI*1.2],
+  ];
+  lilyPads=[...clump,...loose].map(([ax,ay,r,g])=>new LilyPad(ax,ay,r,g));
+}
 
 // ─── RIPPLES + FLASH ──────────────────────────────────────────────────────────
 class Ripple {
@@ -384,7 +380,7 @@ function throwStone(targetX){
   if(stoneState!=='idle'||endState!=='ETERNAL') return;
   stoneState='throwing';
   const maxSkips=2+Math.floor(Math.random()*5);
-  const startX=W*0.5+(targetX-W*0.5)*0.07;
+  const startX=W*0.35+(targetX-W*0.35)*0.07;
   const nearY=HORIZON_Y+(H-SHORE_H-HORIZON_Y)*0.88, farY=HORIZON_Y+WATER_H*0.10;
   const skips=[];
   for(let i=0;i<=maxSkips;i++){const t=(i+1)/(maxSkips+1);skips.push({x:startX+(targetX-startX)*Math.pow(t,0.88),y:nearY+(farY-nearY)*Math.pow(t,1.25),arcH:(88-62*t)*(1-t*0.22)});}
@@ -408,7 +404,7 @@ function updateStone(now,dt){
     else{stone.skipIndex++;stone.arcT=0;stone.arcDur*=0.78;stone.phase='arc';}
     return;
   }
-  if(stone.phase==='sinking'){stone.sinkT+=dt/720;stone.y+=dt*0.045;if(stone.sinkT>=1){stone.phase='done';stoneState='idle';playSplash();}}
+  if(stone.phase==='sinking'){stone.sinkT+=dt/720;stone.y+=dt*0.045;if(stone.sinkT>=1){stone.phase='done';stoneState='idle';playSplash();eternalThrows++;}}
 }
 
 function drawStone(){
@@ -426,7 +422,7 @@ function drawStone(){
 function getChoiceRects(){
   const midX=W*0.5, baseY=H*0.685, fs=Math.round(Math.min(W*0.022,18));
   ctx.font=`${fs}px 'Silkscreen', monospace`;
-  const optA='I\'m not ready to leave yet.', optB='main menu';
+  const optA='I\'ll come back soon, promise.', optB='take a drive';
   const wA=ctx.measureText(optA).width, wB=ctx.measureText(optB).width;
   const pad=18, gap=W*0.10;
   return [
@@ -458,16 +454,6 @@ function drawCreditsAndChoices(now){
     ctx.fillStyle='rgba(180,230,255,0.30)'; ctx.fillText('A WEIGHTLESS STONE',W*0.5,titleY);
     ctx.shadowBlur=8; ctx.fillStyle='#d0eeff'; ctx.fillText('A WEIGHTLESS STONE',W*0.5,titleY);
 
-    // Thin divider
-    const dW=Math.min(W*0.28,240);
-    ctx.beginPath(); ctx.moveTo(W*0.5-dW*0.5,subY-fs*0.4); ctx.lineTo(W*0.5+dW*0.5,subY-fs*0.4);
-    ctx.strokeStyle='rgba(140,190,230,0.35)'; ctx.lineWidth=1; ctx.shadowBlur=0; ctx.stroke();
-
-    // Subtitle
-    const sfs=Math.round(Math.min(W*0.018,15));
-    ctx.font=`${sfs}px 'Silkscreen', monospace`;
-    ctx.shadowColor='rgba(140,180,230,0.60)'; ctx.shadowBlur=10;
-    ctx.fillStyle='rgba(160,200,230,0.75)'; ctx.fillText('for the one I keep thinking about',W*0.5,subY+sfs*1.1);
     ctx.restore();
   }
 
@@ -488,20 +474,22 @@ function drawCreditsAndChoices(now){
     ctx.restore();
   }
 
-  // In eternal mode: small throw-hint arrow (bottom-center, very subtle)
-  if (endState === 'ETERNAL' && creditsAlpha <= 0 && stoneState === 'idle') {
-    const pulse = 0.18 + 0.18 * Math.abs(Math.sin(now * 0.0014));
+  // In eternal mode: return-to-menu arrow near the shore, fades in after a few throws
+  if (endState === 'ETERNAL' && eternalThrows >= 3 && creditsAlpha <= 0) {
+    eternalArrowAlpha = Math.min(1, eternalArrowAlpha + 0.004);
+    const pulse = 0.5 + 0.5 * Math.abs(Math.sin(now * 0.0014));
     const bob   = Math.sin(now * 0.002) * 3;
-    const ax    = W * 0.5, ay = H - SHORE_H * 0.55 + bob;
-    const aw = 9, ah = 6;
+    // Sit just inside the top of the shore band
+    const ax = W * 0.5, ay = H - SHORE_H * 0.82 + bob;
+    const size = 28;
     ctx.save();
-    ctx.globalAlpha = pulse;
-    ctx.shadowColor = 'rgba(130,190,240,0.80)'; ctx.shadowBlur = 10;
-    ctx.fillStyle   = 'rgba(160,210,245,0.85)';
+    ctx.globalAlpha = eternalArrowAlpha * pulse;
+    ctx.shadowColor = 'rgba(200,190,150,0.90)'; ctx.shadowBlur = 18;
+    ctx.fillStyle   = 'rgba(215,205,165,0.92)';
     ctx.beginPath();
-    ctx.moveTo(ax - aw, ay - ah);
-    ctx.lineTo(ax + aw, ay - ah);
-    ctx.lineTo(ax,      ay + ah * 0.6);
+    ctx.moveTo(ax - size,   ay - size * 0.8);
+    ctx.lineTo(ax + size,   ay - size * 0.8);
+    ctx.lineTo(ax,          ay + size * 0.5);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -556,7 +544,7 @@ function frame(now){
   ctx.clearRect(0,0,W,H);
   drawSky(now); drawWater(now); drawBridge(); drawBottomShore(now);
   lilyPads.sort((a,b)=>a.y-b.y);
-  for(const lp of lilyPads){lp.update(dt);lp.draw();}
+  for(const lp of lilyPads){lp.update(dt);lp.draw(now);}
   for(const f of fireflies){f.update();f.draw(now);}
   ripples=ripples.filter(r=>!r.done); for(const r of ripples) r.draw(now);
   flashes=flashes.filter(f=>!f.draw(now));
@@ -571,16 +559,25 @@ document.getElementById('clicker').addEventListener('mousemove',e=>{
   if(endState==='ETERNAL') return;
   const rects=getChoiceRects(); choiceHover=-1;
   rects.forEach(({bx,by,bw,bh},i)=>{if(e.clientX>=bx&&e.clientX<=bx+bw&&e.clientY>=by&&e.clientY<=by+bh)choiceHover=i;});
-  document.getElementById('clicker').style.cursor=choiceHover>=0?'pointer':'default';
+  document.getElementById('clicker').style.cursor='default';
 });
 
 document.getElementById('clicker').addEventListener('click',e=>{
   if(!audioReady) initAudio();
-  if(endState==='ETERNAL'){throwStone(e.clientX);return;}
+  if(endState==='ETERNAL'){
+    // Arrow hit test — return to menu
+    const ax=W*0.5, ay=H-SHORE_H*0.82, size=28;
+    if(eternalThrows>=3 && e.clientX>ax-size-10 && e.clientX<ax+size+10 && e.clientY>ay-size*0.8-10 && e.clientY<ay+size*0.5+10){
+      const f=document.getElementById('fade');f.style.transition='opacity 2.5s ease';f.style.opacity='1';
+      setTimeout(()=>{window.location.href='title.html';},2600);
+      return;
+    }
+    throwStone(e.clientX);return;
+  }
   const rects=getChoiceRects();
   rects.forEach(({bx,by,bw,bh},i)=>{
     if(e.clientX>=bx&&e.clientX<=bx+bw&&e.clientY>=by&&e.clientY<=by+bh){
-      if(i===0){endState='ETERNAL';document.getElementById('clicker').style.cursor='crosshair';}
+      if(i===0){endState='ETERNAL';document.getElementById('clicker').style.cursor='default';}
       else{const f=document.getElementById('fade');f.style.transition='opacity 2.5s ease';f.style.opacity='1';setTimeout(()=>{window.location.href='title.html';},2600);}
     }
   });
