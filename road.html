@@ -44,15 +44,8 @@
   #fade.clear { opacity: 0; }
   #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
 
-  /* ── LAYER 3: overlay — fixed over everything, pointer-events:none ── */
-  #overlay {
-    position: fixed;
-    inset: 0;
-    width: 100vw; height: 100vh;
-    background: url('assets/overlay.png') center center / 100% 100% no-repeat;
-    pointer-events: none;
-    z-index: 9999;
-  }
+  /* overlay.png is composited onto the scene canvas before post-processing
+     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -62,8 +55,7 @@
   <div id="clicker"></div>
   <div id="fade"></div>
 </div>
-<!-- overlay sits outside #wrap so it covers the full viewport -->
-<div id="overlay"></div>
+
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
 let AudioCtx = null;
@@ -110,11 +102,40 @@ resize();
 const carImg      = new Image(); carImg.src      = 'assets/car.png';
 const airFreshImg = new Image(); airFreshImg.src = 'assets/airfreshener.png';
 const bridgeImg   = new Image(); bridgeImg.src   = 'assets/bridgefog.png';
+const overlayImg  = new Image(); overlayImg.src  = 'assets/overlay.png';
 
 let freshAngle = 0;
 let freshVel   = 0;
 const FRESH_DAMP    = 0.97;
 const FRESH_RESTORE = 0.018;
+
+// ─── TYPING SOUND — synthesized click, no asset needed ────────────────────────
+function playTypingClick() {
+  if (!AudioCtx) return;
+  try {
+    const t    = AudioCtx.currentTime;
+    const buf  = AudioCtx.createBuffer(1, Math.floor(AudioCtx.sampleRate * 0.012), AudioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length * 0.18));
+    }
+    const src  = AudioCtx.createBufferSource();
+    const gain = AudioCtx.createGain();
+    const filt = AudioCtx.createBiquadFilter();
+    filt.type            = 'bandpass';
+    filt.frequency.value = 1800;
+    filt.Q.value         = 0.8;
+    src.buffer = buf;
+    src.connect(filt); filt.connect(gain); gain.connect(AudioCtx.destination);
+    gain.gain.setValueAtTime(0.09, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.012);
+    src.start(t);
+  } catch(e) { /* silent */ }
+}
+
+// ─── REARVIEW MIRROR — offscreen canvas ───────────────────────────────────────
+const mirrorCanvas = document.createElement('canvas');
+const mctx         = mirrorCanvas.getContext('2d');
 
 // ─── GEOMETRY ─────────────────────────────────────────────────────────────────
 function depthToY(d)     { return VP_Y + (H - VP_Y) * d; }
@@ -331,6 +352,97 @@ function drawAirFreshener() {
   ctx.restore();
 }
 
+// ─── REARVIEW MIRROR ─────────────────────────────────────────────────────────
+// Renders the road scene flipped horizontally into a rounded-rect mirror
+// positioned just above the air freshener pivot point.
+function drawRearviewMirror() {
+  if (carImg.naturalWidth <= 0) return;
+
+  const cw    = W;
+  const ch    = cw * (carImg.naturalHeight / carImg.naturalWidth);
+  const carY  = H - ch;
+  const scale = cw / carImg.naturalWidth;
+
+  // Mirror dimensions — proportional to car scale
+  const mw = W * 0.16;
+  const mh = mw * 0.38;
+  const mx = VP_X - mw * 0.5;                  // centered on VP_X
+  const my = carY + 310 * scale - mh;          // just above air freshener pivot
+
+  // Size the offscreen canvas to the mirror footprint (render at half-res for perf)
+  const rw = Math.ceil(mw * 0.6);
+  const rh = Math.ceil(mh * 0.6);
+  if (mirrorCanvas.width !== rw || mirrorCanvas.height !== rh) {
+    mirrorCanvas.width = rw; mirrorCanvas.height = rh;
+  }
+
+  // Sample a horizontal strip of the scene centred on VP_X, flipped
+  // We pull from the top ~55% of the scene (sky + treeline + road receding away)
+  mctx.save();
+  mctx.clearRect(0, 0, rw, rh);
+  // Flip horizontally
+  mctx.translate(rw, 0);
+  mctx.scale(-1, 1);
+  // Draw source region: full width, top 55% of scene, scaled into mirror
+  mctx.drawImage(scene, 0, 0, W, H * 0.55, 0, 0, rw, rh);
+  mctx.restore();
+
+  // Taillights gradient — red glow pooling at the bottom of the mirror
+  const tails = mctx.createLinearGradient(0, rh * 0.55, 0, rh);
+  tails.addColorStop(0,   'rgba(180, 15, 8, 0)');
+  tails.addColorStop(0.5, 'rgba(200, 20, 8, 0.18)');
+  tails.addColorStop(1,   'rgba(220, 30, 10, 0.52)');
+  mctx.fillStyle = tails;
+  mctx.fillRect(0, 0, rw, rh);
+
+  // Draw mirror contents clipped to rounded rect
+  ctx.save();
+  const r = mh * 0.28; // corner radius
+  ctx.beginPath();
+  ctx.moveTo(mx + r, my);
+  ctx.lineTo(mx + mw - r, my);
+  ctx.quadraticCurveTo(mx + mw, my,     mx + mw, my + r);
+  ctx.lineTo(mx + mw, my + mh - r);
+  ctx.quadraticCurveTo(mx + mw, my + mh, mx + mw - r, my + mh);
+  ctx.lineTo(mx + r, my + mh);
+  ctx.quadraticCurveTo(mx, my + mh, mx, my + mh - r);
+  ctx.lineTo(mx, my + r);
+  ctx.quadraticCurveTo(mx, my, mx + r, my);
+  ctx.closePath();
+  ctx.clip();
+
+  ctx.drawImage(mirrorCanvas, mx, my, mw, mh);
+
+  // Slight convex darkening vignette at edges (mirror curvature feel)
+  const vig = ctx.createRadialGradient(mx + mw*0.5, my + mh*0.5, mh*0.1, mx + mw*0.5, my + mh*0.5, mw*0.62);
+  vig.addColorStop(0,   'rgba(0,0,0,0)');
+  vig.addColorStop(0.7, 'rgba(0,0,0,0.08)');
+  vig.addColorStop(1,   'rgba(0,0,0,0.42)');
+  ctx.fillStyle = vig; ctx.fillRect(mx, my, mw, mh);
+
+  ctx.restore();
+
+  // Mirror frame — thin dark bezel
+  ctx.save();
+  const r2 = mh * 0.28;
+  ctx.beginPath();
+  ctx.moveTo(mx + r2, my);
+  ctx.lineTo(mx + mw - r2, my);
+  ctx.quadraticCurveTo(mx + mw, my,      mx + mw, my + r2);
+  ctx.lineTo(mx + mw, my + mh - r2);
+  ctx.quadraticCurveTo(mx + mw, my + mh, mx + mw - r2, my + mh);
+  ctx.lineTo(mx + r2, my + mh);
+  ctx.quadraticCurveTo(mx, my + mh, mx, my + mh - r2);
+  ctx.lineTo(mx, my + r2);
+  ctx.quadraticCurveTo(mx, my, mx + r2, my);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(80, 70, 60, 0.85)';
+  ctx.lineWidth   = Math.max(1.5, W * 0.003);
+  ctx.stroke();
+  ctx.restore();
+}
+
+
 // ─── BRIDGE — right side fades to transparent ─────────────────────────────────
 function drawBridge() {
   const bw = W * 0.28;
@@ -459,6 +571,56 @@ function drawSky(now) {
   ctx.fillStyle = hg; ctx.fillRect(0, VP_Y - 10, W, 26);
 }
 
+// ─── MOON — low and fat, rising behind the bridge ─────────────────────────────
+function drawMoon() {
+  // Low in sky, near the bridge on the left — just risen over it
+  const mx = W * 0.18;
+  const my = VP_Y * 0.72;
+  const mr = W * 0.038; // fat prominent disc
+
+  ctx.save();
+
+  // Outer atmospheric halo — warm amber glow of a horizon moon
+  const halo = ctx.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 4.5);
+  halo.addColorStop(0,   'rgba(255, 210, 100, 0.13)');
+  halo.addColorStop(0.3, 'rgba(230, 175,  70, 0.07)');
+  halo.addColorStop(0.7, 'rgba(200, 140,  50, 0.03)');
+  halo.addColorStop(1,   'rgba(0, 0, 0, 0)');
+  ctx.beginPath();
+  ctx.arc(mx, my, mr * 4.5, 0, Math.PI * 2);
+  ctx.fillStyle = halo;
+  ctx.fill();
+
+  // Inner soft glow ring
+  const glow = ctx.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * 2.2);
+  glow.addColorStop(0,   'rgba(255, 225, 140, 0.22)');
+  glow.addColorStop(0.5, 'rgba(240, 195,  90, 0.09)');
+  glow.addColorStop(1,   'rgba(0, 0, 0, 0)');
+  ctx.beginPath();
+  ctx.arc(mx, my, mr * 2.2, 0, Math.PI * 2);
+  ctx.fillStyle = glow;
+  ctx.fill();
+
+  // Moon disc — warm ivory/amber-tinted from horizon atmosphere
+  const disc = ctx.createRadialGradient(mx - mr * 0.22, my - mr * 0.18, 0, mx, my, mr);
+  disc.addColorStop(0,    'rgba(255, 248, 215, 0.96)');
+  disc.addColorStop(0.55, 'rgba(250, 230, 175, 0.93)');
+  disc.addColorStop(0.85, 'rgba(235, 200, 130, 0.88)');
+  disc.addColorStop(1,    'rgba(210, 170,  90, 0.70)');
+  ctx.beginPath();
+  ctx.arc(mx, my, mr, 0, Math.PI * 2);
+  ctx.fillStyle = disc;
+  ctx.fill();
+
+  // Subtle maria — faint darker patches
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle   = 'rgba(140, 110, 60, 1)';
+  ctx.beginPath(); ctx.ellipse(mx - mr*0.18, my - mr*0.08, mr*0.28, mr*0.18, -0.4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(mx + mr*0.22, my + mr*0.15, mr*0.20, mr*0.13,  0.6, 0, Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
 // ─── TREELINE ─────────────────────────────────────────────────────────────────
 function drawTrees() {
   ctx.save();
@@ -579,9 +741,13 @@ function drawDialogue(now) {
   ctx.restore();
 }
 
+// dlgFading: true while old line is fading out before next line begins
+let dlgFading = false;
+
 function startTyping() {
   if (lineIndex >= LINES.length) { endScene(); return; }
   dlgVisible = true;
+  dlgFading  = false;
   charIndex  = 0;
   typing     = true;
   lineReady  = false;
@@ -591,6 +757,8 @@ function startTyping() {
       typing = false; lineReady = true; return;
     }
     const ch = LINES[lineIndex].text[charIndex++];
+    // Play a soft click for each visible character (skip spaces)
+    if (ch !== ' ') playTypingClick();
     const delay = 36
       + (ch === ',' ? 190 : 0)
       + (ch === '.' ? 280 : 0)
@@ -601,14 +769,26 @@ function startTyping() {
 }
 
 function advance() {
-  if (sceneEnding) return;
+  if (sceneEnding || dlgFading) return;
   if (typing) {
+    // Skip to end of line immediately — no fade
     clearTimeout(typingTimer);
     charIndex = LINES[lineIndex].text.length;
     typing = false; lineReady = true;
     return;
   }
-  if (lineReady) { lineIndex++; startTyping(); }
+  if (lineReady) {
+    // Brief fade-out before advancing to the next line
+    dlgFading  = true;
+    lineReady  = false;
+    dlgVisible = false; // triggers alpha fade toward 0 in drawDialogue
+    setTimeout(() => {
+      lineIndex++;
+      dlgAlpha  = 0;    // snap alpha so next line fades IN cleanly
+      dlgFading = false;
+      startTyping();
+    }, 160);
+  }
 }
 
 function endScene() {
@@ -650,6 +830,14 @@ function applyPost() {
   const ph = Math.ceil(H / PIX);
   if (offscreen.width !== pw || offscreen.height !== ph) {
     offscreen.width = pw; offscreen.height = ph; postImageData = null;
+  }
+
+  // Stamp overlay.png onto the scene canvas so it gets dithered with everything else
+  if (overlayImg.naturalWidth > 0) {
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.drawImage(overlayImg, 0, 0, W, H);
+    ctx.restore();
   }
 
   octx.clearRect(0, 0, pw, ph);
@@ -719,6 +907,7 @@ function frame(now) {
 
   ctx.clearRect(0, 0, W, H);
   drawSky(now);
+  drawMoon();
   drawBridge();
   drawFog(now);
   drawTrees();
@@ -727,6 +916,7 @@ function frame(now) {
   drawHeadlightCones();
   drawAirFreshener();
   drawCar();
+  drawRearviewMirror();
   drawDialogue(now);
 
   applyPost();
