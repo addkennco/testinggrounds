@@ -13,7 +13,7 @@
     background: #000 url('assets/pagebkg.png') center center / cover no-repeat;
     overflow: hidden;
     width: 100vw; height: 100vh;
-    cursor: crosshair;
+    cursor: default;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -27,7 +27,7 @@
     flex-shrink: 0;
     background: #000;
     overflow: hidden;
-    cursor: crosshair;
+    cursor: default;
   }
 
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -36,7 +36,7 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
-  #clicker { position: absolute; inset: 0; z-index: 5; cursor: crosshair; }
+  #clicker { position: absolute; inset: 0; z-index: 5; cursor: default; }
   #fade {
     position: absolute; inset: 0; background: #000;
     pointer-events: none; opacity: 0; z-index: 10;
@@ -875,7 +875,7 @@ function throwStone(targetX) {
 
   stoneState = 'throwing'; skipCount = 0;
   const maxSkips = 2+Math.floor(Math.random()*5);
-  const startX   = W*0.35+(targetX-W*0.35)*0.07;
+  const startX   = W*0.5+(targetX-W*0.5)*0.07;
   const nearY    = HORIZON_Y+(H-SHORE_H-HORIZON_Y)*0.88;
   const farY     = HORIZON_Y+WATER_H*0.10;
   const skips    = [];
@@ -968,9 +968,11 @@ const HELD = {
 
 const POEMS = [
   ["let me exist forever","in the stillness of this night","a weightless stone","let me","slip into the placid sea of you"],
-  ["let me listen to your languid murmurs","as moonlit seconds stretch into the past","and gently touch my wounded heart","let me dissolve all my pain","with the sweetest ache"],
-  ["let me drink you in","describe your likeness with my fingertips","a portrait I can paint","with eyes closed","let me put my ear to your chest and","memorize","your heartbeat"],
-  ["let me inspire your sacred breath","and fill my lungs with you","let me revel in the pull of you","yield to the torrent of the storm","and in that pouring rain","press your lips to mine"],
+  ["let me listen to your languid murmurs","as moonlit seconds stretch into the past","and gently touch my wounded heart"],
+  ["let me dissolve all my pain","with the sweetest ache","let me drink you in"],
+  ["let me describe your likeness with my fingertips","a portrait I can paint","with eyes closed"],
+  ["let me put my ear to your chest and","memorize","your heartbeat"],
+  ["let me inspire your sacred breath","and fill my lungs with you"],
   ["let me live here in your gaze","let me see myself reflected","in the infinite mirror of your eyes","projected endlessly"],
 ];
 
@@ -986,8 +988,7 @@ const LETTER_ANALYSIS = [
   "they're never straight.",
   "They remind me of how you wave",
   "both arms in the air",
-  "to get my attention",
-  "from across the room.",
+  "to get my attention from across the room.",
   "But you never needed to do that.",
   "You were always the center of the universe to me.",
 ];
@@ -1133,7 +1134,7 @@ function drawLetter(now, w, h) {
   ctx.fillRect(4, 4, w, h);
   ctx.restore();
 
-  // Poem text (Gochi Hand) — word-wrapped to fit paper
+  // Poem text (Love Ya Like A Sister) — word-wrapped to fit paper
   const poem = POEMS[HELD.poemIndex];
   const lines = HELD.phase === 'poem' ? poem.slice(0, HELD.lineIndex+1) : poem;
   const fontSize = Math.max(32, Math.round(h * 0.065));
@@ -1277,7 +1278,7 @@ const DLG_SIZE  = 28;
 const DLG_FONT  = `'Silkscreen', monospace`;
 
 // Dialogue Y: anchored in lower quarter, never drifts into the water
-function dlgY() { return Math.max(H * 0.75, H - 195); }
+function dlgY() { return Math.max(H * 0.78, H - 165); }
 
 let dlgLines    = [];
 let dlgIndex    = 0;
@@ -1435,9 +1436,9 @@ function drawReturnArrow(now) {
   const bob   = Math.sin(now * 0.0022) * 3.5;
   const pulse = 0.5 + 0.5*Math.abs(Math.sin(now*0.0014));
   const alpha = arrowAlpha * pulse;
-  // Right side, vertically centered in the water zone
+  // Right side, just above the shore band — matches end.html arrow position
   const cx   = W * 0.88;
-  const cy   = HORIZON_Y + (H - SHORE_H - HORIZON_Y) * 0.5 + bob;
+  const cy   = H - SHORE_H * 0.82 + bob;
   const size = 28;
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -1455,7 +1456,7 @@ function drawReturnArrow(now) {
 
 function arrowHitTest(mx,my) {
   if (!arrowActive) return false;
-  const cx=W*0.88, cy=HORIZON_Y+(H-SHORE_H-HORIZON_Y)*0.5, size=28;
+  const cx=W*0.88, cy=H-SHORE_H*0.82, size=28;
   return mx>cx-size-10 && mx<cx+size+10 && my>cy-size*0.8-10 && my<cy+size*0.5+10;
 }
 
@@ -1507,9 +1508,17 @@ function onThrowDone(skips) {
 // Called when letter or photo is dismissed
 function onHeldItemDismissed() {
   if (HELD.type === 'letter') {
-    ss=S.S5_THROW;
-    throwCount=0;
-    // Brief pause then scene 5 begins (no dialogue, just throw)
+    // Fade to black briefly before scene 5 — sky darkens, fireflies emerge
+    const fadeEl = document.getElementById('fade');
+    fadeEl.style.transition = 'opacity 1.2s ease';
+    fadeEl.style.opacity = '1';
+    setTimeout(() => {
+      ss = S.S5_THROW;
+      throwCount = 0;
+      fadeEl.style.transition = 'opacity 1.8s ease';
+      fadeEl.style.opacity = '0';
+      setTimeout(() => { fadeEl.style.pointerEvents = 'none'; }, 1900);
+    }, 1300);
   } else if (HELD.type === 'photo') {
     ss=S.S8_THROW;
     throwCount=0;
