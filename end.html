@@ -72,12 +72,23 @@ const Audio = {
 };
 
 let audioReady=false;
+let ambientNode=null;
+
 async function initAudio() {
   if (audioReady) return; audioReady=true;
   Audio.init();
-  await Promise.all([Audio.load('ambient','assets/crickets_frogs.mp3'),Audio.load('stone','assets/stone_skip.mp3'),Audio.load('splash','assets/splash.mp3')]);
-  const amb=Audio.play('ambient',{loop:true,volume:0});
-  if (amb) Audio.fade(amb,0.55,4);
+  await Promise.all([
+    Audio.load('ambient', 'assets/crickets_frogs.mp3'),
+    Audio.load('stone',   'assets/stone_skip.mp3'),
+    Audio.load('splash',  'assets/splash.mp3'),
+    Audio.load('music',   'assets/title.mp3'),
+  ]);
+  // Crickets fade in slowly
+  ambientNode = Audio.play('ambient', { loop: true, volume: 0 });
+  if (ambientNode) Audio.fade(ambientNode, 0.50, 5);
+  // Title music comes in very softly underneath — this is the end, after all
+  const music = Audio.play('music', { loop: true, volume: 0 });
+  if (music) Audio.fade(music, 0.28, 8);
 }
 function playStoneSkip() { Audio.play('stone',{volume:0.5+Math.random()*0.3}); }
 function playSplash()    { Audio.play('splash',{volume:0.6}); }
@@ -415,7 +426,7 @@ function drawStone(){
 function getChoiceRects(){
   const midX=W*0.5, baseY=H*0.685, fs=Math.round(Math.min(W*0.022,18));
   ctx.font=`${fs}px 'Silkscreen', monospace`;
-  const optA='return to the shore', optB='main menu';
+  const optA='I\'m not ready to leave yet.', optB='main menu';
   const wA=ctx.measureText(optA).width, wB=ctx.measureText(optB).width;
   const pad=18, gap=W*0.10;
   return [
@@ -474,6 +485,25 @@ function drawCreditsAndChoices(now){
       ctx.fillStyle=hover?'#e0f4ff':'rgba(170,215,245,0.90)';
       ctx.fillText(text,rx,by+bh-8);
     });
+    ctx.restore();
+  }
+
+  // In eternal mode: small throw-hint arrow (bottom-center, very subtle)
+  if (endState === 'ETERNAL' && creditsAlpha <= 0 && stoneState === 'idle') {
+    const pulse = 0.18 + 0.18 * Math.abs(Math.sin(now * 0.0014));
+    const bob   = Math.sin(now * 0.002) * 3;
+    const ax    = W * 0.5, ay = H - SHORE_H * 0.55 + bob;
+    const aw = 9, ah = 6;
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    ctx.shadowColor = 'rgba(130,190,240,0.80)'; ctx.shadowBlur = 10;
+    ctx.fillStyle   = 'rgba(160,210,245,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(ax - aw, ay - ah);
+    ctx.lineTo(ax + aw, ay - ah);
+    ctx.lineTo(ax,      ay + ah * 0.6);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 }
