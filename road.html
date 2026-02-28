@@ -504,18 +504,6 @@ const DLG_FONT = `'Silkscreen', monospace`;
 // Dialogue Y: lower quarter of screen, anchored so it never drifts into the road
 function dlgY() { return Math.max(H * 0.72, H - 220); }
 
-let lineIndex   = 0;
-let charIndex   = 0;
-let typing      = false;
-let lineReady   = false;
-let typingTimer = null;
-let sceneEnding = false;
-let dlgVisible  = false;
-let dlgAlpha    = 0;
-let cursorOn    = true;
-let cursorMs    = 0;
-let lastFrameMs = 0;
-
 // Text drawn on ctx (scene canvas) so it lives UNDER post-processing dither
 function drawDialogue(now) {
   const dt = now - lastFrameMs;
@@ -673,18 +661,25 @@ function applyPost() {
   for (let y = 0; y < ph; y++) {
     for (let x = 0; x < pw; x++) {
       const i = (y * pw + x) * 4;
-      const dx = (x - cx) / pw, dy = (y - cy) / ph;
+      // CRT barrel distortion (subtle — divisor 14)
+      const nx = (x / pw) * 2 - 1, ny = (y / ph) * 2 - 1;
+      const sxf = (nx + nx * (ny * ny) / 14) * 0.5 + 0.5;
+      const syf = (ny + ny * (nx * nx) / 14) * 0.5 + 0.5;
+      if (sxf < 0 || sxf > 1 || syf < 0 || syf > 1) { dd[i] = 0; dd[i+1] = 0; dd[i+2] = 0; dd[i+3] = 255; continue; }
+      const sx = Math.round(sxf * pw), sy = Math.round(syf * ph);
+      const si = (sy * pw + sx) * 4;
+      const dx = (sx - cx) / pw, dy = (sy - cy) / ph;
       const dist  = Math.sqrt(dx*dx + dy*dy) * 1.42;
       const offPx = Math.round(dist * ABER * pw);
-      const ir = (y * pw + Math.min(pw - 1, x + offPx)) * 4;
-      const ib = (y * pw + Math.max(0,       x - offPx)) * 4;
-      let r = sd[ir], g = sd[i + 1], b = sd[ib + 2];
+      const ir = (sy * pw + Math.min(pw - 1, sx + offPx)) * 4;
+      const ib = (sy * pw + Math.max(0,       sx - offPx)) * 4;
+      let r = sd[ir], g = sd[si + 1], b = sd[ib + 2];
       const bv   = BAYER8[(y % 8) * 8 + (x % 8)];
       const doff = (bv - 0.5) * DSTR * 255;
       r = Math.min(255, Math.max(0, Math.round((r + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
       g = Math.min(255, Math.max(0, Math.round((g + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
       b = Math.min(255, Math.max(0, Math.round((b + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
-      dd[i] = r; dd[i+1] = g; dd[i+2] = b; dd[i+3] = sd[i+3];
+      dd[i] = r; dd[i+1] = g; dd[i+2] = b; dd[i+3] = sd[si+3];
     }
   }
 
