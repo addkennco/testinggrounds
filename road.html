@@ -427,24 +427,6 @@ function drawRearviewMirror() {
 
   ctx.restore();
 
-  // Mirror frame — thin dark bezel
-  ctx.save();
-  const r2 = mh * 0.28;
-  ctx.beginPath();
-  ctx.moveTo(mx + r2, my);
-  ctx.lineTo(mx + mw - r2, my);
-  ctx.quadraticCurveTo(mx + mw, my,      mx + mw, my + r2);
-  ctx.lineTo(mx + mw, my + mh - r2);
-  ctx.quadraticCurveTo(mx + mw, my + mh, mx + mw - r2, my + mh);
-  ctx.lineTo(mx + r2, my + mh);
-  ctx.quadraticCurveTo(mx, my + mh, mx, my + mh - r2);
-  ctx.lineTo(mx, my + r2);
-  ctx.quadraticCurveTo(mx, my, mx + r2, my);
-  ctx.closePath();
-  ctx.strokeStyle = 'rgba(80, 70, 60, 0.85)';
-  ctx.lineWidth   = Math.max(1.5, W * 0.003);
-  ctx.stroke();
-  ctx.restore();
 }
 
 
@@ -644,7 +626,7 @@ function drawTrees() {
 }
 
 // ─── DIALOGUE ─────────────────────────────────────────────────────────────────
-const LINES = [
+const ROAD_LINES = [
   { text: "I didn't plan on coming out this late.", italic: false },
   { text: "But the road was empty.", italic: false },
   { text: "And I kept thinking\u2026", italic: false },
@@ -652,12 +634,13 @@ const LINES = [
   { text: "you'd say this is your favorite time to go for a drive.", italic: false },
   { text: "You'd call it prime time for making core memories.", italic: false },
 ];
+let dlgLines = [];
 
-let lineIndex   = 0;
-let charIndex   = 0;
-let typing      = false;
-let lineReady   = false;
-let typingTimer = null;
+let dlgIndex    = 0;
+let dlgChar     = 0;
+let dlgTyping   = false;
+let dlgReady    = false;
+let dlgTimer    = null;
 let sceneEnding = false;
 let dlgVisible  = false;
 let dlgAlpha    = 0;
@@ -669,7 +652,7 @@ const DLG_SIZE = 28;
 const DLG_FONT = `'Silkscreen', monospace`;
 
 // Dialogue Y: lower quarter of screen, anchored so it never drifts into the road
-function dlgY() { return Math.max(H * 0.75, H - 195); }
+function dlgY() { return Math.max(H * 0.78, H - 165); }
 
 // Text drawn on ctx (scene canvas) so it lives UNDER post-processing dither
 function drawDialogue(now) {
@@ -682,13 +665,13 @@ function drawDialogue(now) {
   dlgAlpha += (target - dlgAlpha) * 0.07;
   if (!dlgVisible && dlgAlpha <= 0.01) return;
 
-  const line = LINES[lineIndex];
+  const line = dlgLines[dlgIndex];
   if (!line) return;
 
   ctx.save();
   ctx.globalAlpha = dlgAlpha;
 
-  const displayed = line.text.slice(0, charIndex);
+  const displayed = line.text.slice(0, dlgChar);
   const tx = W * 0.09;
   const ty = dlgY();
 
@@ -715,7 +698,7 @@ function drawDialogue(now) {
   }
 
   // Blinking cursor
-  if (lineReady && cursorOn) {
+  if (dlgReady && cursorOn) {
     const tw = ctx.measureText(displayed).width;
     ctx.shadowColor = 'rgba(130, 190, 240, 0.8)';
     ctx.shadowBlur  = 6;
@@ -723,12 +706,14 @@ function drawDialogue(now) {
     ctx.fillRect(tx + tw + 3, ty + 3, 4, DLG_SIZE - 4);
   }
 
-  // "click to continue" — small downward triangle arrow with bob
-  if (lineReady) {
+  // "click to continue" — arrow tethered just below the blinking cursor
+  if (dlgReady) {
     const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
     const bob    = Math.sin(now * 0.0022) * 3.5;
-    const arrowX = tx + 10;
-    const arrowY = ty + DLG_SIZE + 18 + bob;
+    // X tracks the cursor: end of displayed text + same offset as the cursor rect
+    const tw     = ctx.measureText(displayed).width;
+    const arrowX = tx + tw + 3 + 2;              // center on the 4px cursor rect
+    const arrowY = ty + DLG_SIZE + 14 + bob;
     const aw = 9, ah = 6;
     ctx.save();
     ctx.globalAlpha  = dlgAlpha * pulse;
@@ -749,49 +734,56 @@ function drawDialogue(now) {
 // dlgFading: true while old line is fading out before next line begins
 let dlgFading = false;
 
-function startTyping() {
-  if (lineIndex >= LINES.length) { endScene(); return; }
+function typeNextLine() {
+  const line = dlgLines[dlgIndex];
+  if (!line) { endScene(); return; }
   dlgVisible = true;
   dlgFading  = false;
-  charIndex  = 0;
-  typing     = true;
-  lineReady  = false;
+  dlgChar    = 0;
+  dlgTyping  = true;
+  dlgReady   = false;
 
   function tick() {
-    if (charIndex >= LINES[lineIndex].text.length) {
-      typing = false; lineReady = true; return;
+    if (dlgChar >= line.text.length) {
+      dlgTyping = false; dlgReady = true; return;
     }
-    const ch = LINES[lineIndex].text[charIndex++];
-    // Play a soft click for each visible character (skip spaces)
+    const ch = line.text[dlgChar++];
     if (ch !== ' ') playTypingClick();
     const delay = 54
       + (ch === ',' ? 190 : 0)
       + (ch === '.' ? 280 : 0)
       + (ch === '\u2026' ? 420 : 0);
-    typingTimer = setTimeout(tick, delay);
+    dlgTimer = setTimeout(tick, delay);
   }
   tick();
 }
 
-function advance() {
+function startDialogue(lines, callback) {
+  dlgLines   = lines;
+  dlgIndex   = 0;
+  dlgVisible = true;
+  dlgAlpha   = 0;
+  dlgFading  = false;
+  typeNextLine();
+}
+
+function advanceDlg() {
   if (sceneEnding || dlgFading) return;
-  if (typing) {
-    // Skip to end of line immediately — no fade
-    clearTimeout(typingTimer);
-    charIndex = LINES[lineIndex].text.length;
-    typing = false; lineReady = true;
+  if (dlgTyping) {
+    clearTimeout(dlgTimer);
+    dlgChar   = dlgLines[dlgIndex].text.length;
+    dlgTyping = false; dlgReady = true;
     return;
   }
-  if (lineReady) {
-    // Brief fade-out before advancing to the next line
+  if (dlgReady) {
     dlgFading  = true;
-    lineReady  = false;
-    dlgVisible = false; // triggers alpha fade toward 0 in drawDialogue
+    dlgReady   = false;
+    dlgVisible = false;
     setTimeout(() => {
-      lineIndex++;
-      dlgAlpha  = 0;    // snap alpha so next line fades IN cleanly
+      dlgIndex++;
+      dlgAlpha  = 0;
       dlgFading = false;
-      startTyping();
+      typeNextLine();
     }, 160);
   }
 }
@@ -912,7 +904,6 @@ function frame(now) {
 
   ctx.clearRect(0, 0, W, H);
   drawSky(now);
-  drawMoon();
   drawBridge();
   drawFog(now);
   drawTrees();
@@ -942,17 +933,17 @@ function frame(now) {
 let audioStarted = false;
 document.getElementById('clicker').addEventListener('click', () => {
   if (!audioStarted) { audioStarted = true; startAudio(); }
-  advance();
+  advanceDlg();
 });
-document.addEventListener('keydown', e => { if (e.key===' '||e.key==='Enter') advance(); });
-document.addEventListener('touchend', e => { e.preventDefault(); advance(); }, {passive:false});
+document.addEventListener('keydown', e => { if (e.key===' '||e.key==='Enter') advanceDlg(); });
+document.addEventListener('touchend', e => { e.preventDefault(); advanceDlg(); }, {passive:false});
 
 // ─── START ────────────────────────────────────────────────────────────────────
 requestAnimationFrame(frame);
 const fadeEl = document.getElementById('fade');
 setTimeout(() => {
   fadeEl.classList.add('clear');
-  setTimeout(startTyping, 1500);
+  setTimeout(() => startDialogue(ROAD_LINES), 1500);
 }, 100);
 </script>
 </body>
