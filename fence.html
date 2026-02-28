@@ -293,7 +293,7 @@ const FONT      = `'Silkscreen', monospace`;
 
 // Dialogue Y: sits in the lower quarter of the screen, always clear of the ground
 // Using H * 0.76 as a floor so it never rides up into the scene at tall viewports
-function dlgY() { return Math.max(H * 0.72, H - 220); }
+function dlgY() { return Math.max(H * 0.75, H - 195); }
 function choiceBaseY() { return dlgY(); }
 
 let lineIndex   = 0;
@@ -393,19 +393,24 @@ function drawDialogue(now) {
     ctx.fillRect(tx + tw + 3, ty + 2, 4, FONT_SIZE - 2);
   }
 
-  // "click to continue" hint — pulses gently below the text line
+  // "click to continue" — small downward triangle arrow with bob
   if (lineReady) {
-    const pulse  = 0.20 + 0.20 * Math.abs(Math.sin(now * 0.0016));
-    const hintY  = ty + FONT_SIZE + 14;
-    ctx.globalAlpha = pulse;
-    ctx.font        = `14px ${FONT}`;
-    ctx.shadowColor = 'rgba(130,180,240,0.80)';
-    ctx.shadowBlur  = 10;
-    ctx.fillStyle   = 'rgba(130,180,220,0.60)';
-    ctx.fillText('click to continue', tx, hintY);
-    ctx.shadowBlur  = 4;
-    ctx.fillStyle   = 'rgba(160,200,240,0.90)';
-    ctx.fillText('click to continue', tx, hintY);
+    const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
+    const bob    = Math.sin(now * 0.0022) * 3.5;
+    const arrowX = tx + 10;
+    const arrowY = ty + FONT_SIZE + 18 + bob;
+    const aw = 9, ah = 6;
+    ctx.save();
+    ctx.globalAlpha  = pulse;
+    ctx.shadowColor  = 'rgba(130,190,240,0.85)'; ctx.shadowBlur = 10;
+    ctx.fillStyle    = 'rgba(160,210,245,0.90)';
+    ctx.beginPath();
+    ctx.moveTo(arrowX - aw, arrowY - ah);
+    ctx.lineTo(arrowX + aw, arrowY - ah);
+    ctx.lineTo(arrowX,      arrowY + ah * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   ctx.restore();
