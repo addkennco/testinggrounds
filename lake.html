@@ -27,7 +27,6 @@
     flex-shrink: 0;
     background: #000;
     overflow: hidden;
-    cursor: default;
   }
 
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -39,10 +38,10 @@
   #clicker { position: absolute; inset: 0; z-index: 5; cursor: default; }
   #fade {
     position: absolute; inset: 0; background: #000;
-    pointer-events: none; opacity: 0; z-index: 10;
+    pointer-events: none; opacity: 1; z-index: 10;
   }
-  #fade.in  { opacity: 1; }
-  #fade.out { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
+  #fade.clear { opacity: 0; transition: opacity 1.6s ease; }
+  #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
 
   /* overlay.png is composited onto the scene canvas before post-processing
      so it gets dithered naturally — no separate DOM element needed */
@@ -53,7 +52,7 @@
   <canvas id="scene"></canvas>
   <canvas id="post"></canvas>
   <div id="clicker"></div>
-  <div id="fade" class="in"></div>
+  <div id="fade"></div>
 </div>
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
@@ -100,7 +99,6 @@ async function initAudio() {
     Audio.load('stone',   'assets/stone_skip.mp3'),
     Audio.load('splash',  'assets/splash.mp3'),
     Audio.load('crinkle', 'assets/paper_crinkle.mp3'),
-    Audio.load('photo',   'assets/photo_rustle.mp3'),
   ]);
   // Start ambient loop
   ambientNode = Audio.play('ambient', { loop: true, volume: 0, fadeIn: 0 });
@@ -110,7 +108,6 @@ async function initAudio() {
 function playStoneSkip() { Audio.play('stone',  { volume: 0.5 + Math.random()*0.3 }); }
 function playSplash()    { Audio.play('splash', { volume: 0.6 }); }
 function playCrinkle()   { Audio.play('crinkle',{ volume: 0.7 }); }
-function playPhotoSound(){ Audio.play('photo',  { volume: 0.5 }); }
 
 // ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
 const scene = document.getElementById('scene');
@@ -1036,6 +1033,9 @@ function openHeldItem(type) {
     HELD.dlgReady  = true;  // first line ready immediately
     HELD.paperCache= null;
   }
+  if (type === 'photo') {
+    playCrinkle();
+  }
 }
 
 function dismissHeldItem() {
@@ -1349,9 +1349,9 @@ function pickChoice(i) {
 }
 
 function getChoiceRects() {
-  const ch=DLG_SIZE+24, tx=W*0.09;
+  const ch=DLG_SIZE+16, tx=W*0.09;
   const baseY = dlgY();
-  return choiceOpts.map((text,i)=>({bx:tx, by:baseY+i*(ch+12), bw:W*0.82, bh:ch, text}));
+  return choiceOpts.map((text,i)=>({bx:tx, by:baseY+i*(ch+8), bw:W*0.82, bh:ch, text}));
 }
 
 function drawDialogue(now) {
@@ -1373,8 +1373,12 @@ function drawDialogue(now) {
       ctx.save();
       ctx.font=`${DLG_SIZE}px ${DLG_FONT}`;
       ctx.textAlign='left'; ctx.textBaseline='middle';
-      ctx.shadowColor=hover?'rgba(160,210,255,0.95)':'rgba(100,160,220,0.5)';
-      ctx.shadowBlur=hover?18:5;
+      // Double-draw glow so choices survive dither
+      ctx.shadowColor=hover?'rgba(160,210,255,0.95)':'rgba(100,160,220,0.55)';
+      ctx.shadowBlur=hover?22:8;
+      ctx.fillStyle=hover?'rgba(232,244,255,0.55)':'rgba(122,172,204,0.45)';
+      ctx.fillText(text, bx, by+bh*0.5);
+      ctx.shadowBlur=hover?8:3;
       ctx.fillStyle=hover?'#e8f4ff':'#7aaccc';
       ctx.fillText(text, bx, by+bh*0.5);
       ctx.restore();
@@ -1714,7 +1718,12 @@ document.getElementById('clicker').addEventListener('mousemove', e=>{
   if (choiceMode) {
     const rects=getChoiceRects(); choiceHover=-1;
     rects.forEach(({bx,by,bw,bh},i)=>{ if(mouseX>=bx&&mouseX<=bx+bw&&mouseY>=by&&mouseY<=by+bh) choiceHover=i; });
+  } else {
+    choiceHover=-1;
   }
+  const overChoice = choiceMode && choiceHover !== -1;
+  const overArrow  = arrowHitTest(mouseX, mouseY);
+  document.getElementById('clicker').style.cursor = (overChoice || overArrow) ? 'none' : 'default';
 });
 
 document.getElementById('clicker').addEventListener('click', e=>{
@@ -1770,8 +1779,7 @@ requestAnimationFrame(frame);
 // Fade in then begin scene 3
 const fadeEl=document.getElementById('fade');
 setTimeout(()=>{
-  fadeEl.style.transition='opacity 1.6s ease';
-  fadeEl.style.opacity='0';
+  fadeEl.classList.add('clear');
   setTimeout(()=>{ fadeEl.style.pointerEvents='none'; startS3(); }, 1800);
 },100);
 
