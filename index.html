@@ -4,11 +4,10 @@
 <meta charset="UTF-8">
 <title>A Weightless Stone</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Gochi+Hand&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  /* ── LAYER 1: viewport root — pagebkg.png fills the bars/corners ── */
+ 
   body {
     background: #000 url('assets/pagebkg.png') center center / cover no-repeat;
     overflow: hidden;
@@ -19,7 +18,6 @@
     justify-content: center;
   }
 
-  /* ── LAYER 2: 16:9 game container — canvases live here ── */
   #wrap {
     position: relative;
     width:  min(100vw, 177.78vh);
@@ -41,8 +39,6 @@
     pointer-events: none; opacity: 1; z-index: 10;
   }
 
-  /* overlay.png is composited onto the scene canvas before post-processing
-     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -58,7 +54,6 @@ let titleAudio = null;
 async function startTitleAudio() {
   try {
     titleAudio = new (window.AudioContext || window.webkitAudioContext)();
-    // Ambient crickets/water
     const loadLoop = async (src, vol) => {
       const res = await fetch(src);
       const buf = await titleAudio.decodeAudioData(await res.arrayBuffer());
@@ -72,7 +67,6 @@ async function startTitleAudio() {
       return gain;
     };
     loadLoop('assets/crickets_frogs.mp3', 0.4);
-    // Optional: title music
     const res2 = await fetch('assets/title.mp3');
     const buf2 = await titleAudio.decodeAudioData(await res2.arrayBuffer());
     const mSrc = titleAudio.createBufferSource();
@@ -99,7 +93,7 @@ async function playTitleStoneSkip() {
   } catch(e) {}
 }
 
-// ─── CANVAS SETUP ─────────────────────────────────────────────────────────────
+// ─── CANVAS ───────────────────────────────────────────────────────────────────
 const scene = document.getElementById('scene');
 const ctx   = scene.getContext('2d');
 const post  = document.getElementById('post');
@@ -108,6 +102,9 @@ const pctx  = post.getContext('2d');
 let W, H, HORIZON_Y;
 let _stars = null;
 let letters = null;
+let lilyPads  = [];
+let lilyClump = [];
+let debris    = [];
 
 function resize() {
   const wrap = document.getElementById('wrap');
@@ -117,7 +114,7 @@ function resize() {
   scene.height= post.height = H;
   HORIZON_Y = Math.round(H * 0.48);
   _stars = null;
-  letters = null; // rebuild letter positions on resize
+  letters = null; 
   if (lilyPads.length)  initLilyPads();
   if (debris.length)    initDebris();
 }
@@ -134,19 +131,18 @@ cattailsImg.src = 'assets/cattails.png';
 const rushesImg   = new Image();
 rushesImg.src   = 'assets/rushes.png';
 
-// ─── TIMING & PHASES ──────────────────────────────────────────────────────────
-// All timed in ms from scene start
+// ─── TIMING ──────────────────────────────────────────────────────────────────
 const T = {
   HORIZON_FADE_START : 800,
   HORIZON_FADE_DUR   : 2200,
   STARS_START        : 2000,
-  STARS_DUR          : 4000,   // all stars finish blinking on by 6000
+  STARS_DUR          : 4000,  
   WATER_START        : 3000,
   WATER_DUR          : 2500,
-  LETTER_DROP_START  : 5500,   // letters start drifting down
-  LETTER_SETTLE      : 8200,   // letters all settled on water
-  RIPPLE_START       : 8200,   // ring ripples after each letter lands
-  CLICK_PROMPT       : 9500,   // "click to continue" fades in
+  LETTER_DROP_START  : 5500,  
+  LETTER_SETTLE      : 8200,   
+  RIPPLE_START       : 8200,   
+  CLICK_PROMPT       : 9500,   
 };
 
 let sceneStart   = null;
@@ -154,7 +150,7 @@ let clickReady   = false;
 let sceneEnded   = false;
 let audioStarted = false;
 
-// ─── PERLIN (water ripple) ─────────────────────────────────────────────────────
+// ─── PERLIN ──────────────────────────────────────────────────────────────────
 function fade(t)       { return t*t*t*(t*(t*6-15)+10); }
 function lerp(a,b,t)   { return a+t*(b-a); }
 const _perm = new Uint8Array(512);
@@ -171,7 +167,6 @@ function ensureStars() {
     s:   0.4 + Math.random() * 1.2,
     ph:  Math.random() * Math.PI * 2,
     sp:  0.4 + Math.random() * 1.8,
-    // staggered appearance time (0–1 within STARS_DUR)
     bornT: Math.random(),
   }));
 }
@@ -194,22 +189,16 @@ function drawTrees(alpha) {
   ctx.restore();
 }
 
-// ─── LETTER OBJECTS ───────────────────────────────────────────────────────────
-// "A WEIGHTLESS STONE" — two lines centered on water
-// Each letter drops from above horizon, then skips once on water with a ring
+// ─── TITLE ──────────────────────────────────────────────────────────────────
 const LINE1 = 'A WEIGHTLESS STONE';
 const FONT_SIZE_TITLE = Math.min(Math.max(W * 0.048, 32), 72);
-const LETTER_SPACING  = 1.12;   // multiplier on measured char width
-
-// Build letter positions lazily after canvas is sized
+const LETTER_SPACING  = 1.12;
 function buildLetters() {
   const fs  = Math.min(Math.max(W * 0.048, 32), 72);
   ctx.font  = `700 ${fs}px 'Silkscreen', monospace`;
   const text = LINE1;
   const totalW = ctx.measureText(text).width;
   const startX = (W - totalW) * 0.5;
-  // textBaseline = 'alphabetic': the baseline (bottom of most letters) sits on HORIZON_Y
-  // Adding a small offset so the letters appear to float ON the water, not cut into it
   const restY  = HORIZON_Y + Math.round(fs * 0.08);
 
   letters = [];
@@ -217,21 +206,18 @@ function buildLetters() {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     const cw = ctx.measureText(ch).width;
-    const stagger = i / (text.length - 1); // 0..1
+    const stagger = i / (text.length - 1);
     letters.push({
       ch,
       restX: cx + cw * 0.5,
       restY,
       cw,
-      // Drop animation: each letter starts at staggered time
-      dropStart: T.LETTER_DROP_START + stagger * 1600,  // ms from sceneStart
+      dropStart: T.LETTER_DROP_START + stagger * 1600,
       dropDur:   600 + Math.random() * 200,
-      // Quantized stutter-fall state
       progress: 0,
       settled:  false,
-      ringBorn: null,   // when ring was spawned (performance.now)
+      ringBorn: null, 
       ringSounded: false,
-      // Current draw position
       x: cx + cw * 0.5,
       y: -80,
       fs,
@@ -240,7 +226,7 @@ function buildLetters() {
   }
 }
 
-// ─── RIPPLE RINGS (for letter landings) ───────────────────────────────────────
+// ─── RIPPLES ──────────────────────────────────────────────────────────────
 class TitleRipple {
   constructor(x, y) {
     this.x = x; this.y = y;
@@ -278,7 +264,7 @@ class TitleRipple {
 }
 let ripples = [];
 
-const SHORE_H = 55; // matches the shore band drawn at bottom of index scene
+const SHORE_H = 55;
 
 // ─── CATTAILS + RUSHES ────────────────────────────────────────────────────────
 function drawCattails(alpha) {
@@ -347,7 +333,7 @@ class LilyPad {
     ctx.shadowColor = 'rgba(60,170,130,0.6)'; ctx.shadowBlur = 8;
     ctx.fill();
     ctx.restore();
-    // Pad body
+    // Lilypad shape
     this._buildPath(ctx, r, scaleY, 0, 0);
     const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
     bodyGrad.addColorStop(0,   'rgba(14,36,18,0.97)');
@@ -358,9 +344,6 @@ class LilyPad {
     ctx.restore();
   }
 }
-
-let lilyPads  = [];
-let lilyClump = [];
 
 function initLilyPads() {
   const spread = [
@@ -379,7 +362,7 @@ function initLilyPads() {
   lilyClump = clump.map(([ax, ay, r, g])  => new LilyPad(ax, ay, r, g));
 }
 
-// ─── DEBRIS (twigs + leaves drifting across water) ───────────────────────────
+// ─── DEBRIS ───────────────────────────────────────────────────────────────
 class Debris {
   constructor(offscreen = false) { this._init(offscreen); }
   _init(offscreen = false) {
@@ -453,7 +436,6 @@ class Debris {
   }
 }
 
-let debris = [];
 function initDebris() {
   debris = Array.from({length: 8}, () => new Debris(false));
 }
@@ -466,19 +448,18 @@ function drawBridge(alpha) {
   const bh = bw / aspect;
   ctx.save();
   ctx.globalAlpha = alpha * 0.82;
-  // Center so HORIZON_Y bisects the image — reflection lines up with water surface
   ctx.drawImage(bridgeImg, 0, HORIZON_Y - bh * 0.5, bw, bh);
   ctx.restore();
 }
 
-// ─── DRAW SCENE ───────────────────────────────────────────────────────────────
+// ─── ARTISTS ───────────────────────────────────────────────────────────────────
 function drawScene(now) {
   if (!sceneStart) return;
-  const elapsed = now - sceneStart; // ms
+  const elapsed = now - sceneStart;
 
   ctx.clearRect(0, 0, W, H);
 
-  // 1. Sky gradient (fades in from black)
+  // Sky Gradient
   const skyAlpha = Math.min(1, Math.max(0, (elapsed - T.HORIZON_FADE_START) / T.HORIZON_FADE_DUR));
 
   // Sky
@@ -502,7 +483,7 @@ function drawScene(now) {
   ctx.fillStyle=disc; ctx.beginPath(); ctx.arc(moonX,moonY,moonR,0,Math.PI*2); ctx.fill();
   ctx.restore();
 
-  // Stars — staggered blink-in
+  // Stars
   ensureStars();
   const starsPhase = Math.min(1, Math.max(0, (elapsed - T.STARS_START) / T.STARS_DUR));
   const t = now * 0.001;
@@ -520,11 +501,14 @@ function drawScene(now) {
   // Treeline
   drawTrees(skyAlpha);
 
-  // Cattails (left) and rushes (right) — fade in with water
+  // Water
+  const waterAlpha = Math.min(1, Math.max(0, (elapsed - T.WATER_START) / T.WATER_DUR));
+
+  // Plants
   drawCattails(waterAlpha);
   drawRushes(waterAlpha);
 
-  // Horizon line — thin bright seam
+  // Horizon
   ctx.save();
   ctx.globalAlpha = skyAlpha * 0.6;
   ctx.strokeStyle = 'rgba(100,160,220,0.4)';
@@ -540,8 +524,7 @@ function drawScene(now) {
   ctx.stroke();
   ctx.restore();
 
-  // Water (fades in a bit later)
-  const waterAlpha = Math.min(1, Math.max(0, (elapsed - T.WATER_START) / T.WATER_DUR));
+  // Water
   const wGrad = ctx.createLinearGradient(0, HORIZON_Y, 0, H);
   wGrad.addColorStop(0,   'rgba(3,2,10,0.95)');
   wGrad.addColorStop(0.5, 'rgba(2,1,8,0.99)');
@@ -549,7 +532,7 @@ function drawScene(now) {
   ctx.save(); ctx.globalAlpha = waterAlpha;
   ctx.fillStyle = wGrad; ctx.fillRect(0, HORIZON_Y, W, H - HORIZON_Y);
 
-  // Moon reflection column
+  // Reflection
   const reflLen = H - HORIZON_Y;
   const slices  = 30;
   for (let si = 0; si < slices; si++) {
@@ -570,10 +553,10 @@ function drawScene(now) {
   ctx.globalAlpha = 1;
   ctx.restore();
 
-  // Bridge — drawn AFTER water so the built-in reflection sits on the surface
+  // Bridge
   drawBridge(skyAlpha);
 
-  // Water shimmer line
+  // Breakers
   ctx.save(); ctx.globalAlpha = waterAlpha * 0.5;
   ctx.beginPath(); ctx.moveTo(0, HORIZON_Y + 2);
   for (let x = 0; x <= W; x += 12) {
@@ -596,8 +579,8 @@ function drawScene(now) {
   }
   ctx.closePath(); ctx.fill(); ctx.restore();
 
-  // Debris + lily pads — drawn over water, fade in with it
-  const idxDt = 16; // approximate frame dt for update
+  // Debris + lily pads
+  const idxDt = 16;
   for (const d of debris) { d.update(); d.draw(waterAlpha); }
   for (const lp of lilyClump) { lp.update(idxDt); lp.draw(now, waterAlpha); }
   for (const lp of lilyPads)  { lp.update(idxDt); lp.draw(now, waterAlpha); }
@@ -610,7 +593,6 @@ function drawScene(now) {
     if (dropElapsed < 0) continue; // not yet
 
     if (!ltr.settled) {
-      // Quantized stutter fall
       ltr.progress = Math.min(1, ltr.progress + 0.015);
       const stepped = Math.floor(ltr.progress * 20) / 20;
       const startY  = -ltr.fs * 1.2;
@@ -628,7 +610,6 @@ function drawScene(now) {
         }
       }
     } else {
-      // Gentle sine float after settling
       ltr.y = ltr.restY + Math.sin(t * 2 + ltr.restX * 0.008) * 0.6;
     }
 
@@ -638,8 +619,6 @@ function drawScene(now) {
     ctx.font      = `700 ${ltr.fs}px 'Silkscreen', monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-
-    // Glow + body
     ctx.shadowColor = 'rgba(160,220,255,0.85)';
     ctx.shadowBlur  = 18;
     ctx.fillStyle   = 'rgba(180,230,255,0.25)';
@@ -648,9 +627,8 @@ function drawScene(now) {
     ctx.fillStyle   = '#d0eeff';
     ctx.fillText(ltr.ch, ltr.x, ltr.y);
 
-    // Reflection in water (flipped below horizon, faded)
+    // Reflection in water
     if (ltr.settled) {
-      // With alphabetic baseline, ltr.y is the baseline — mirror from there
       const distBelow = ltr.y - HORIZON_Y;
       const mirrorY   = HORIZON_Y + distBelow + 4;
       ctx.save();
@@ -666,7 +644,7 @@ function drawScene(now) {
     ctx.restore();
   }
 
-  // Ripple rings from letter landings
+  // Ripples
   ripples = ripples.filter(r => !r.done);
   for (const r of ripples) r.draw(now);
 
@@ -675,14 +653,13 @@ function drawScene(now) {
   if (promptAlpha > 0) {
     clickReady = true;
     const pulse = 0.30 + 0.30 * Math.abs(Math.sin(now * 0.0018));
-    const promptY = HORIZON_Y + (H - HORIZON_Y) * 0.42; // closer to the title letters
+    const promptY = HORIZON_Y + (H - HORIZON_Y) * 0.42;
     ctx.save();
     ctx.globalAlpha  = promptAlpha * pulse;
     const promptFs   = Math.max(18, Math.round(W * 0.016));
     ctx.font         = `${promptFs}px 'Silkscreen', monospace`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
-    // Double-draw glow so it survives the dither pass
     ctx.shadowColor  = 'rgba(140,180,240,0.90)';
     ctx.shadowBlur   = 18;
     ctx.fillStyle    = 'rgba(140,180,220,0.45)';
@@ -717,7 +694,6 @@ function applyPost() {
   if (offscreen.width!==pw||offscreen.height!==ph) {
     offscreen.width=pw; offscreen.height=ph; postImageData=null;
   }
-  // Stamp overlay.png onto scene canvas so it gets dithered with everything else
   if (overlayImg.naturalWidth > 0) {
     ctx.save();
     ctx.globalAlpha = 1;
@@ -734,7 +710,6 @@ function applyPost() {
   for (let y=0;y<ph;y++) {
     for (let x=0;x<pw;x++) {
       const i=(y*pw+x)*4;
-      // CRT barrel distortion (subtle — divisor 14)
       const nx=(x/pw)*2-1, ny=(y/ph)*2-1;
       const sxf=(nx+nx*(ny*ny)/14)*0.5+0.5;
       const syf=(ny+ny*(nx*nx)/14)*0.5+0.5;
@@ -770,7 +745,6 @@ function applyPost() {
 // ─── MAIN LOOP ────────────────────────────────────────────────────────────────
 function frame(now) {
   if (!sceneStart) {
-    // begin after fade
     ctx.clearRect(0,0,W,H);
     applyPost();
     requestAnimationFrame(frame);
