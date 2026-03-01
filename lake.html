@@ -472,73 +472,60 @@ function drawShoes(now) {
   const t    = now * 0.001;
   const sway = Math.sin(t * 0.4) * 1.2;
   const baseY = H - SHORE_H * 0.32;
-  const cx    = W * 0.35;   // left of center
+  const cx    = W * 0.35;
   const gap   = 38;
-  drawOneShoe(ctx, cx - gap, baseY, -1, sway * 0.6);
-  drawOneShoe(ctx, cx + gap, baseY,  1, sway * 0.4);
+  drawOneShoe(ctx, cx - gap, baseY, -0.18, -1, sway * 0.6);
+  drawOneShoe(ctx, cx + gap, baseY,  0.18,  1, sway * 0.4);
 }
-
-function drawOneShoe(ctx, cx, baseY, dir, sway) {
+function shoeOutline(ctx, halfW, toeY, heelY) {
+  ctx.beginPath();
+  ctx.moveTo(-halfW * 0.65, heelY);
+  ctx.bezierCurveTo(-halfW * 0.8, (toeY+heelY)*0.45, -halfW, toeY+14, -halfW*0.7, toeY);
+  ctx.bezierCurveTo(-halfW*0.3, toeY-4, halfW*0.3, toeY-4, halfW*0.7, toeY);
+  ctx.bezierCurveTo(halfW, toeY+14, halfW*0.8, (toeY+heelY)*0.45, halfW*0.65, heelY);
+  ctx.bezierCurveTo(halfW*0.3, heelY+4, -halfW*0.3, heelY+4, -halfW*0.65, heelY);
+  ctx.closePath();
+}
+function drawOneShoe(ctx, cx, baseY, angle, side, sway) {
   ctx.save();
   ctx.translate(cx + sway, baseY);
-
-  const shoeW = 52, shoeH = 26;
-  const toeX  = dir * shoeW * 0.52;
-  const heelX = -dir * shoeW * 0.38;
-
+  ctx.rotate(angle);
+  const HW   = 19;
+  const TOE  = -55;
+  const HEEL =  13;
   // Shadow
-  ctx.beginPath();
-  ctx.ellipse(toeX * 0.3, 2, shoeW * 0.42, 4, 0, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.save();
+  ctx.translate(3, 4);
+  ctx.globalAlpha = 0.3;
+  shoeOutline(ctx, HW+2, TOE+2, HEEL);
+  ctx.fillStyle = '#000';
   ctx.fill();
-
-  // Sole
-  ctx.beginPath();
-  ctx.moveTo(heelX, 0);
-  ctx.bezierCurveTo(heelX, -4, toeX * 0.6, -3, toeX, -7);
-  ctx.bezierCurveTo(toeX + dir*4, -10, toeX + dir*2, -14, toeX - dir*4, -14);
-  ctx.bezierCurveTo(0, -14, heelX * 0.6, -8, heelX, -5);
-  ctx.closePath();
-  ctx.fillStyle = '#1a1510';
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  // White rubber foxing border
+  shoeOutline(ctx, HW+2, TOE+1, HEEL);
+  ctx.fillStyle = '#ddd9d2';
   ctx.fill();
-
-  // Upper body
-  const upperGrad = ctx.createLinearGradient(heelX, -shoeH, toeX, -6);
-  upperGrad.addColorStop(0,   '#2e2438');
-  upperGrad.addColorStop(0.5, '#221a2e');
-  upperGrad.addColorStop(1,   '#1a1225');
-  ctx.beginPath();
-  ctx.moveTo(heelX, -5);
-  ctx.bezierCurveTo(heelX, -shoeH * 0.9, heelX * 0.3, -shoeH, 0, -shoeH);
-  ctx.bezierCurveTo(toeX * 0.5, -shoeH, toeX * 0.85, -shoeH * 0.7, toeX, -14);
-  ctx.bezierCurveTo(toeX + dir*2, -10, toeX - dir*4, -8, toeX - dir*8, -7);
-  ctx.bezierCurveTo(0, -6, heelX * 0.6, -5, heelX, -5);
-  ctx.closePath();
-  ctx.fillStyle = upperGrad;
+  // Canvas upper — black
+  shoeOutline(ctx, HW, TOE+4, HEEL);
+  ctx.fillStyle = '#1e1e1e';
   ctx.fill();
-
-  // Tongue
-  ctx.beginPath();
-  ctx.ellipse(heelX * 0.2, -shoeH + 2, shoeW * 0.22, shoeH * 0.22, 0.1, 0, Math.PI * 2);
-  ctx.fillStyle = '#3a2a48';
-  ctx.fill();
-
-  // Lace eyelets (three small X marks)
-  ctx.strokeStyle = 'rgba(200,185,220,0.55)';
-  ctx.lineWidth   = 1;
-  for (let i = 0; i < 3; i++) {
-    const lx = heelX * 0.5 + dir * i * 7;
-    const ly = -shoeH * 0.55 - i * 2.5;
-    ctx.beginPath(); ctx.moveTo(lx - 5, ly - 2); ctx.lineTo(lx + 5, ly + 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(lx + 5, ly - 2); ctx.lineTo(lx - 5, ly + 2); ctx.stroke();
+  // Lace zone
+  const laceTop    = TOE + 23;
+  const laceBottom = HEEL - 10;
+  const eyeletX    = 8;
+  const nLaces     = 5;
+  const laceSpacing = (laceBottom - laceTop) / nLaces;
+  // X laces
+  ctx.strokeStyle = 'rgba(255,252,245,0.92)';
+  ctx.lineWidth = 1.3;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < nLaces; i++) {
+    const y1 = laceTop + i * laceSpacing;
+    const y2 = laceTop + (i+1) * laceSpacing;
+    ctx.beginPath(); ctx.moveTo(-eyeletX, y1); ctx.lineTo(eyeletX, y2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo( eyeletX, y1); ctx.lineTo(-eyeletX, y2); ctx.stroke();
   }
-
-  // Toe highlight
-  ctx.beginPath();
-  ctx.ellipse(toeX - dir*8, -11, 8, 3, dir * 0.3, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fill();
-
   ctx.restore();
 }
 
