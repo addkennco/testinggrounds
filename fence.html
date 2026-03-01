@@ -8,7 +8,6 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  /* ── LAYER 1: viewport root — pagebkg.png fills the bars/corners ── */
   body {
     background: #000 url('assets/pagebkg.png') center center / cover no-repeat;
     overflow: hidden;
@@ -18,11 +17,8 @@
     align-items: center;
     justify-content: center;
   }
-
-  /* ── LAYER 2: 16:9 game container — canvases live here ── */
   #wrap {
     position: relative;
-    /* Fit the largest 16:9 rectangle inside the viewport */
     width:  min(100vw, 177.78vh);
     height: min(100vh, 56.25vw);
     flex-shrink: 0;
@@ -45,8 +41,6 @@
   #fade.clear { opacity: 0; }
   #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
 
-  /* overlay.png is composited onto the scene canvas before post-processing
-     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -102,7 +96,7 @@ const poleImg  = new Image(); poleImg.src  = 'assets/utilitypole.png';
 const treeImg  = new Image(); treeImg.src  = 'assets/tree.png';
 
 
-// ─── TYPING SOUND — synthesized click, no asset needed ────────────────────────
+// ─── TYPING SOUND ─────────────────────────────────────────────────────────────
 function playTypingClick() {
   if (!fenceAudioCtx) return;
   try {
@@ -126,13 +120,10 @@ function playTypingClick() {
   } catch(e) { /* silent */ }
 }
 
-// ─── PARALLAX STATE ───────────────────────────────────────────────────────────
-// fence: slow zoom-in toward viewer
-// pole:  drifts leftward (like car is still moving, pole slides by)
-// tree:  drifts rightward (same motion on the other side)
-const FENCE_ZOOM_RATE = 0.000018;   // scale per ms — slow but visible
-const POLE_DRIFT_RATE = -0.014;     // px per ms leftward
-const TREE_DRIFT_RATE =  0.014;     // px per ms rightward
+// ─── PARALLAX ─────────────────────────────────────────────────────────────────
+const FENCE_ZOOM_RATE = 0.000018; 
+const POLE_DRIFT_RATE = -0.014; 
+const TREE_DRIFT_RATE =  0.014; 
 
 let fenceScale  = 1.0;
 let poleOffsetX = 0;
@@ -150,8 +141,6 @@ function drawSky(now) {
   grad.addColorStop(1.00, '#2e1210');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
-
-  // Faint horizon warmth — remnant of headlights passed
   const hg = ctx.createLinearGradient(0, H * 0.52, 0, H * 0.68);
   hg.addColorStop(0, 'rgba(80,32,8,0)');
   hg.addColorStop(0.4, 'rgba(100,42,8,0.07)');
@@ -183,8 +172,7 @@ function drawSky(now) {
   }
 }
 
-// ─── GROUND PLANE ─────────────────────────────────────────────────────────────
-// Dark earth below the scene — gives the PNGs something to sit on
+// ─── GROUND ─────────────────────────────────────────────────────────────────
 function drawGround() {
   const groundY = H * 0.62;
   const grad = ctx.createLinearGradient(0, groundY, 0, H);
@@ -193,8 +181,6 @@ function drawGround() {
   grad.addColorStop(1,   '#04030a');
   ctx.fillStyle = grad;
   ctx.fillRect(0, groundY, W, H - groundY);
-
-  // Subtle road surface glint — residual of the drive
   const roadSheen = ctx.createLinearGradient(W * 0.3, groundY, W * 0.7, groundY);
   roadSheen.addColorStop(0,   'rgba(0,0,0,0)');
   roadSheen.addColorStop(0.5, 'rgba(50,40,80,0.08)');
@@ -205,7 +191,6 @@ function drawGround() {
 
 // ─── ATMOSPHERIC HAZE ─────────────────────────────────────────────────────────
 function drawHaze() {
-  // Soft ground fog pooling at the horizon line
   const horizonY = H * 0.60;
   const hazeH    = H * 0.14;
 
@@ -217,7 +202,7 @@ function drawHaze() {
   ctx.fillStyle = haze;
   ctx.fillRect(0, horizonY - hazeH * 0.5, W, hazeH * 1.5);
 
-  // Thin horizon seam — gives the eye a clear ground/sky split
+  // Horizon
   ctx.save();
   ctx.strokeStyle = 'rgba(60,30,50,0.55)';
   ctx.lineWidth   = 1;
@@ -229,7 +214,7 @@ function drawHaze() {
   ctx.stroke();
   ctx.restore();
 
-  // Side darkness — narrow corridor effect
+  // Corridor
   const leftDark = ctx.createLinearGradient(0, 0, W * 0.18, 0);
   leftDark.addColorStop(0, 'rgba(2,1,8,0.60)');
   leftDark.addColorStop(1, 'rgba(2,1,8,0)');
@@ -244,7 +229,6 @@ function drawHaze() {
 }
 
 // ─── FENCE ────────────────────────────────────────────────────────────────────
-// Full-screen, slowly zooms toward viewer
 function drawFence() {
   if (fenceImg.naturalWidth <= 0) return;
   const dw = W * fenceScale;
@@ -258,7 +242,6 @@ function drawFence() {
 }
 
 // ─── UTILITY POLE ─────────────────────────────────────────────────────────────
-// Left-aligned, full screen height, drifts leftward off screen
 function drawPole() {
   if (poleImg.naturalWidth <= 0) return;
   const aspect = poleImg.naturalWidth / poleImg.naturalHeight;
@@ -273,7 +256,6 @@ function drawPole() {
 }
 
 // ─── TREE ─────────────────────────────────────────────────────────────────────
-// Right-aligned, full screen height, drifts rightward off screen
 function drawTree() {
   if (treeImg.naturalWidth <= 0) return;
   const aspect = treeImg.naturalWidth / treeImg.naturalHeight;
@@ -287,10 +269,7 @@ function drawTree() {
   ctx.restore();
 }
 
-// ─── DIALOGUE SYSTEM ──────────────────────────────────────────────────────────
-// ALL text is drawn on the scene canvas — it lives under the post-processing
-// dither pass, so it pixelates with everything else. Silkscreen is a proper
-// pixel font so it survives the quantization and looks intentional.
+// ─── DIALOGUE ────────────────────────────────────────────────────────────────
 
 const FENCE_LINES = [
   { text: "I don't remember who made this.", italic: false },
@@ -306,9 +285,6 @@ let dlgLines = [];
 
 const DLG_SIZE  = 28;
 const DLG_FONT  = `'Silkscreen', monospace`;
-
-// Dialogue Y: sits in the lower quarter of the screen, always clear of the ground
-// Using H * 0.76 as a floor so it never rides up into the scene at tall viewports
 function dlgY() { return Math.max(H * 0.78, H - 165); }
 
 let dlgIndex    = 0;
@@ -327,7 +303,7 @@ let mouseX      = 0;
 let mouseY      = 0;
 let dlgFading   = false;
 
-// ─── CHOICE CARDS ─────────────────────────────────────────────────────────────
+// ─── CHOICES ───────────────────────────────────────────────────────────────────
 function getChoiceRects() {
   const choiceLine = dlgLines.find(l => l.choice);
   const opts  = choiceLine ? choiceLine.options : [];
@@ -357,7 +333,6 @@ function drawDialogue(now) {
   const line = dlgLines[dlgIndex];
   if (!line) return;
 
-  // ── CHOICE SCREEN ──
   if (line.choice) {
     const rects = getChoiceRects();
     for (let i = 0; i < rects.length; i++) {
@@ -368,7 +343,6 @@ function drawDialogue(now) {
       ctx.font         = `${DLG_SIZE}px ${DLG_FONT}`;
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'middle';
-      // Double-draw glow so choices survive dither
       ctx.shadowColor  = hover ? 'rgba(160,210,255,0.95)' : 'rgba(100,160,220,0.55)';
       ctx.shadowBlur   = hover ? 22 : 8;
       ctx.fillStyle    = hover ? 'rgba(232,244,255,0.55)' : 'rgba(122,172,204,0.45)';
@@ -381,7 +355,6 @@ function drawDialogue(now) {
     return;
   }
 
-  // ── NORMAL LINE ──
   ctx.save();
   ctx.globalAlpha = dlgAlpha;
   const displayed = line.text.slice(0, dlgChar);
@@ -419,7 +392,7 @@ function drawDialogue(now) {
     ctx.fillRect(tx + tw + 3, ty + 3, 4, DLG_SIZE - 4);
   }
 
-  // "click to continue" — arrow tethered just below the blinking cursor
+  // Continue Arrow
   if (dlgReady) {
     const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
     const bob    = Math.sin(now * 0.0022) * 3.5;
@@ -526,6 +499,7 @@ function handleMouseMove(mx, my) {
 
 function endScene() {
   sceneEnding = true;
+  dlgVisible  = false;
   document.getElementById('clicker').style.cursor = 'default';
   document.getElementById('fade').classList.add('out');
   setTimeout(() => {
@@ -534,7 +508,6 @@ function endScene() {
 }
 
 // ─── POST PROCESSING ──────────────────────────────────────────────────────────
-// Identical pipeline to road.html — Bayer dither + chromatic aberration + scanlines + vignette
 const offscreen = document.createElement('canvas');
 const octx      = offscreen.getContext('2d', { willReadFrequently: true });
 
@@ -566,7 +539,6 @@ function applyPost() {
     postImageData    = null;
   }
 
-  // Stamp overlay.png onto scene canvas so it gets dithered with everything else
   if (overlayImg.naturalWidth > 0) {
     ctx.save();
     ctx.globalAlpha = 1;
@@ -588,7 +560,6 @@ function applyPost() {
   for (let y = 0; y < ph; y++) {
     for (let x = 0; x < pw; x++) {
       const i   = (y * pw + x) * 4;
-      // CRT barrel distortion (subtle — divisor 14)
       const nx = (x / pw) * 2 - 1, ny = (y / ph) * 2 - 1;
       const sxf = (nx + nx * (ny * ny) / 14) * 0.5 + 0.5;
       const syf = (ny + ny * (nx * nx) / 14) * 0.5 + 0.5;
@@ -626,7 +597,7 @@ function applyPost() {
   for (let y = 0; y < H; y += PIX) pctx.fillRect(0, y + PIX - 1, W, 1);
   pctx.restore();
 
-  // Vignette — slightly shifted up so ground corners darken more
+  // Vignette
   const vig = pctx.createRadialGradient(W*0.5, H*0.52, H*0.05, W*0.5, H*0.52, H*0.90);
   vig.addColorStop(0, 'rgba(0,0,0,0)');
   vig.addColorStop(1, 'rgba(0,0,0,0.62)');
@@ -649,15 +620,15 @@ function frame(now) {
   poleOffsetX = elapsed * POLE_DRIFT_RATE;
   treeOffsetX = elapsed * TREE_DRIFT_RATE;
 
-  // Draw scene layers — all on scene canvas, all get dithered
+  // Draw scene layers
   ctx.clearRect(0, 0, W, H);
   drawSky(now);
   drawGround();
   drawFence();
   drawPole();
   drawTree();
-  drawHaze();         // haze on top of layers for depth
-  drawDialogue(now);  // text under dither — belongs to the world
+  drawHaze();     
+  drawDialogue(now);
 
   applyPost();
 
@@ -665,13 +636,20 @@ function frame(now) {
 }
 
 // ─── INPUT ────────────────────────────────────────────────────────────────────
+function getWrapOffset() {
+  const rect = document.getElementById('wrap').getBoundingClientRect();
+  return { x: rect.left, y: rect.top };
+}
+
 document.getElementById('clicker').addEventListener('click', e => {
   if (!fenceAudioStarted) { fenceAudioStarted = true; startFenceAudio(); }
-  handleClick(e.clientX, e.clientY);
+  const off = getWrapOffset();
+  handleClick(e.clientX - off.x, e.clientY - off.y);
 });
 document.getElementById('clicker').addEventListener('mousemove', e => {
-  mouseX = e.clientX;
-  mouseY = e.clientY;
+  const off = getWrapOffset();
+  mouseX = e.clientX - off.x;
+  mouseY = e.clientY - off.y;
   handleMouseMove(mouseX, mouseY);
   const line = dlgLines[dlgIndex];
   const overChoice = line && line.choice && choiceHover !== -1;
@@ -683,7 +661,8 @@ document.addEventListener('keydown', e => {
 document.addEventListener('touchend', e => {
   e.preventDefault();
   const t = e.changedTouches[0];
-  handleClick(t.clientX, t.clientY);
+  const off = getWrapOffset();
+  handleClick(t.clientX - off.x, t.clientY - off.y);
 }, { passive: false });
 
 // ─── START ────────────────────────────────────────────────────────────────────
