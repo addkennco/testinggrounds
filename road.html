@@ -8,7 +8,6 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  /* ── LAYER 1: viewport root — pagebkg.png fills the bars/corners ── */
   body {
     background: #000 url('assets/pagebkg.png') center center / cover no-repeat;
     overflow: hidden;
@@ -19,7 +18,6 @@
     justify-content: center;
   }
 
-  /* ── LAYER 2: 16:9 game container — canvases live here ── */
   #wrap {
     position: relative;
     width:  min(100vw, 177.78vh);
@@ -44,8 +42,6 @@
   #fade.clear { opacity: 0; }
   #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
 
-  /* overlay.png is composited onto the scene canvas before post-processing
-     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -109,7 +105,7 @@ let freshVel   = 0;
 const FRESH_DAMP    = 0.97;
 const FRESH_RESTORE = 0.018;
 
-// ─── TYPING SOUND — synthesized click, no asset needed ────────────────────────
+// ─── TYPING SOUNDS ────────────────────────────────────────────────────────────
 function playTypingClick() {
   if (!AudioCtx) return;
   try {
@@ -133,19 +129,25 @@ function playTypingClick() {
   } catch(e) { /* silent */ }
 }
 
-// ─── REARVIEW MIRROR — offscreen canvases ────────────────────────────────────
-// mirrorSceneCanvas: snapshot taken BEFORE car/moon are drawn
+// ─── REARVIEW MIRROR ──────────────────────────────────────────────────────────
 const mirrorSceneCanvas = document.createElement('canvas');
 const msctx             = mirrorSceneCanvas.getContext('2d');
-// mirrorCanvas: the scaled, flipped, taillights-composited output
 const mirrorCanvas = document.createElement('canvas');
 const mctx         = mirrorCanvas.getContext('2d');
+
+// ─── PERLIN ──────────────────────────────────────────────────────────────────
+function pfade(t) { return t*t*t*(t*(t*6-15)+10); }
+function plerp(a,b,t) { return a+t*(b-a); }
+const _perm = new Uint8Array(512);
+(()=>{const p=Array.from({length:256},(_,i)=>i);for(let i=255;i>0;i--){const j=Math.floor(Math.random()*(i+1));[p[i],p[j]]=[p[j],p[i]];}for(let i=0;i<512;i++)_perm[i]=p[i&255];})();
+function pgrad2(h,x,y){const hh=h&3,u=hh<2?x:y,v=hh<2?y:x;return((hh&1)?-u:u)+((hh&2)?-v:v);}
+function perlin2(x,y){const xi=Math.floor(x)&255,yi=Math.floor(y)&255,xf=x-Math.floor(x),yf=y-Math.floor(y),u=pfade(xf),v=pfade(yf),aa=_perm[_perm[xi]+yi],ab=_perm[_perm[xi]+yi+1],ba=_perm[_perm[xi+1]+yi],bb=_perm[_perm[xi+1]+yi+1];return plerp(plerp(pgrad2(aa,xf,yf),pgrad2(ba,xf-1,yf),u),plerp(pgrad2(ab,xf,yf-1),pgrad2(bb,xf-1,yf-1),u),v);}
 
 // ─── GEOMETRY ─────────────────────────────────────────────────────────────────
 function depthToY(d)     { return VP_Y + (H - VP_Y) * d; }
 function depthToScale(d) { return 0.04 + d * 0.96; }
 
-// Single consistent gentle curve — Night Driver style
+// Road Curve
 const CURVE_DIR = 0.055;
 function roadCurveOffset(d) {
   return CURVE_DIR * W * d * (1 - d) * 3.2;
@@ -164,7 +166,7 @@ function updateRoad(dt) {
   dashOffset = (dashOffset + dt * SPEED) % 1.0;
 }
 
-// ─── REFLECTORS — bigger, fewer, more spaced ──────────────────────────────────
+// ─── REFLECTORS —──────────────────────────────────────────────────────────────
 const REF_COUNT = 6;
 
 function drawReflectors() {
@@ -187,6 +189,87 @@ function drawReflectors() {
       ctx.restore();
     }
   }
+}
+
+// ─── WATER ───────────────────────────────────────────────────────────
+function drawWaterLeft(now) {
+  const t = now * 0.001;
+  const STEPS = 40;
+  const leftPts = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const d = i / STEPS;
+    leftPts.push({ x: roadEdgeX(d, -1), y: depthToY(d) });
+  }
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0, VP_Y);
+  for (const p of leftPts) ctx.lineTo(p.x, p.y);
+  ctx.lineTo(0, H);
+  ctx.lineTo(0, VP_Y);
+  ctx.closePath();
+  ctx.clip();
+
+  // Water fill
+  const wGrad = ctx.createLinearGradient(0, VP_Y, 0, H);
+  wGrad.addColorStop(0,   'rgba(3,2,10,0.97)');
+  wGrad.addColorStop(0.5, 'rgba(2,1,8,0.99)');
+  wGrad.addColorStop(1,   'rgba(2,1,8,0.99)');
+  ctx.fillStyle = wGrad;
+  ctx.fillRect(0, VP_Y, W * 0.5, H);
+
+  // Moon reflection 
+  const moonX = W * 0.18;
+  const reflLen = H - VP_Y;
+  const slices  = 28;
+  for (let si = 0; si < slices; si++) {
+    const vt   = si / slices;
+    const vy   = VP_Y + vt * reflLen;
+    const colW = (24 + vt * 110) + Math.sin(t * 0.7) * 7;
+    const n1   = perlin2(vt * 3.2 + t * 0.16, t * 0.10);
+    const nm   = 0.4 + 0.6 * (n1 * 0.5 + 0.5);
+    const baseA = 0.18 * Math.sin(vt * Math.PI) * (1 - vt * 0.35);
+    const alpha = baseA * nm;
+    if (alpha < 0.005) continue;
+    const hShimmer = perlin2(vt * 2.0 + 10, t * 0.20) * colW * 0.30;
+    const lx = moonX - colW * 0.5 + hShimmer;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(230,195,120,0.22)';
+    ctx.fillRect(lx, vy, colW, reflLen / slices + 1);
+  }
+  ctx.globalAlpha = 1;
+
+  // Horizon
+  ctx.save();
+  ctx.strokeStyle = 'rgba(100,160,220,0.30)';
+  ctx.lineWidth   = 1;
+  ctx.shadowColor = 'rgba(80,150,220,0.45)';
+  ctx.shadowBlur  = 5;
+  ctx.beginPath();
+  ctx.moveTo(0, VP_Y);
+  for (let x = 0; x <= W * 0.5; x += 12) {
+    const wy = Math.sin(x * 0.020 + t * 1.1) * 1.1 + Math.sin(x * 0.033 + t * 0.7) * 0.5;
+    ctx.lineTo(x, VP_Y + wy);
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  // Water shimmer
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.beginPath();
+  ctx.moveTo(0, VP_Y + 3);
+  for (let x = 0; x <= W * 0.5; x += 10) {
+    const wy = Math.sin(x * 0.019 + t * 1.15) * 1.4 + Math.sin(x * 0.029 + t * 0.8) * 0.7;
+    ctx.lineTo(x, VP_Y + 3 + wy);
+  }
+  ctx.strokeStyle = 'rgba(130,200,255,0.20)';
+  ctx.lineWidth   = 1.2;
+  ctx.shadowColor = 'rgba(100,180,255,0.35)';
+  ctx.shadowBlur  = 4;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.restore();
 }
 
 // ─── ROAD ─────────────────────────────────────────────────────────────────────
@@ -224,9 +307,9 @@ function drawRoad() {
   ctx.stroke();
   ctx.restore();
 
-  // Center dashes — longer dashes, wider gaps, chunkier
+  // Center dashes
   const DASH_LEN = 0.075;
-  const GAP_LEN  = 0.085;
+  const GAP_LEN  = 0.095;
   const PERIOD   = DASH_LEN + GAP_LEN;
   const NUM_DASH = Math.ceil(1.0 / PERIOD) + 2;
 
@@ -244,7 +327,7 @@ function drawRoad() {
     }
 
     const alpha = Math.pow(d0, 0.5) * 0.88;
-    const lw    = Math.max(4, depthToScale(d0) * 16);
+    const lw    = Math.max(4, depthToScale(d0) * 20);
 
     ctx.save();
     ctx.strokeStyle = `rgba(210,205,175,${alpha})`;
@@ -258,14 +341,13 @@ function drawRoad() {
   }
 }
 
-// ─── HEADLIGHT GLOW — single centered ambient beam ────────────────────────────
+// ─── HEADLIGHTS ────────────────────────────────────────────────────────────
 function drawHeadlightCones() {
   const baseY = H * 0.88;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
 
-  // Wide outer cone — tall ellipse stretching up the road toward horizon
   ctx.save();
   ctx.translate(VP_X, baseY);
   ctx.scale(1, 0.55);
@@ -280,7 +362,6 @@ function drawHeadlightCones() {
   ctx.fill();
   ctx.restore();
 
-  // Tight bright center hotspot — the hood reflection
   const gHot = ctx.createRadialGradient(VP_X, baseY, 0, VP_X, baseY, W * 0.24);
   gHot.addColorStop(0,    'rgba(255, 255, 210, 0.28)');
   gHot.addColorStop(0.30, 'rgba(255, 252, 185, 0.11)');
@@ -290,7 +371,6 @@ function drawHeadlightCones() {
   ctx.fillStyle = gHot;
   ctx.fill();
 
-  // Road surface wash — long gentle streak down the center lane
   const roadGlow = ctx.createRadialGradient(VP_X, H * 0.88, 0, VP_X, H * 0.88, W * 0.62);
   roadGlow.addColorStop(0,   'rgba(215, 218, 155, 0.09)');
   roadGlow.addColorStop(0.5, 'rgba(185, 198, 125, 0.03)');
@@ -303,7 +383,7 @@ function drawHeadlightCones() {
   ctx.restore();
 }
 
-// ─── CAR PNG — full width, bottom-aligned ─────────────────────────────────────
+// ─── CAR PNG ─────────────────────────────────────────────────────────────────
 function drawCar() {
   if (carImg.naturalWidth <= 0) return;
   const cw = W;
@@ -311,7 +391,7 @@ function drawCar() {
   ctx.drawImage(carImg, VP_X - cw * 0.5, H - ch, cw, ch);
 }
 
-// ─── AIR FRESHENER — lower + bigger ──────────────────────────────────────────
+// ─── AIR FRESHENER ────────────────────────────────────────────────────────────
 function drawAirFreshener() {
   if (airFreshImg.naturalWidth <= 0 || carImg.naturalWidth <= 0) return;
 
@@ -319,20 +399,14 @@ function drawAirFreshener() {
   const ch    = cw * (carImg.naturalHeight / carImg.naturalWidth);
   const carY  = H - ch;
   const scale = cw / carImg.naturalWidth;
-
-  // Pivot lower — 340px down in image space
   const pivotX = VP_X;
   const pivotY = carY + 460 * scale;
-
-  // Slightly bigger — 8.2% of car width
   const fw = cw * 0.086;
   const fh = fw * (airFreshImg.naturalHeight / airFreshImg.naturalWidth);
-
-  // Lower baseline — 575px from car bottom in image space
   const baselineCanvasY = carY + (carImg.naturalHeight - 575) * scale;
   const stringLen = baselineCanvasY - pivotY - fh;
 
-  // Pendulum
+  // Pendulum Swing
   const nudge = Math.sin(performance.now() * 0.00073) * 0.00055
               + Math.sin(performance.now() * 0.00131) * 0.00028;
   freshVel += (-FRESH_RESTORE * freshAngle) + nudge;
@@ -357,8 +431,6 @@ function drawAirFreshener() {
 }
 
 // ─── REARVIEW MIRROR ─────────────────────────────────────────────────────────
-// Renders the road scene flipped horizontally into a rounded-rect mirror
-// positioned just above the air freshener pivot point.
 function drawRearviewMirror() {
   if (carImg.naturalWidth <= 0) return;
 
@@ -366,25 +438,18 @@ function drawRearviewMirror() {
   const ch    = cw * (carImg.naturalHeight / carImg.naturalWidth);
   const carY  = H - ch;
   const scale = cw / carImg.naturalWidth;
-
-  // Mirror dimensions — adjusted per measurements (1920px reference)
-  // ~100px wider total (60px left, 40px right), shifted left, dropped ~115px
   const baseW  = W * 0.16;
-  const mw     = baseW + W * 0.052;            // +100px at 1920
+  const mw     = baseW + W * 0.052;
   const mh     = mw * 0.38;
-  // Center shifts left by (60-40)/2 * (W/1920) = 10px at 1920 → W*0.0052
   const mx = VP_X - mw * 0.5 - W * 0.0052;
-  // Drop ~115px at 1080p → H*0.106
   const my = carY + 310 * scale - mh + H * 0.106;
-
-  // Size the offscreen canvas to the mirror footprint (render at half-res for perf)
   const rw = Math.ceil(mw * 0.6);
   const rh = Math.ceil(mh * 0.6);
   if (mirrorCanvas.width !== rw || mirrorCanvas.height !== rh) {
     mirrorCanvas.width = rw; mirrorCanvas.height = rh;
   }
 
-  // Sample from the clean road-only snapshot (no car, no moon)
+  // Snapshot sample
   mctx.save();
   mctx.clearRect(0, 0, rw, rh);
   mctx.translate(rw, 0);
@@ -392,7 +457,7 @@ function drawRearviewMirror() {
   mctx.drawImage(mirrorSceneCanvas, 0, 0, W, H * 0.55, 0, 0, rw, rh);
   mctx.restore();
 
-  // Taillights gradient — red glow pooling at the bottom of the mirror
+  // Taillights
   const tails = mctx.createLinearGradient(0, rh * 0.55, 0, rh);
   tails.addColorStop(0,   'rgba(180, 15, 8, 0)');
   tails.addColorStop(0.5, 'rgba(200, 20, 8, 0.18)');
@@ -400,9 +465,9 @@ function drawRearviewMirror() {
   mctx.fillStyle = tails;
   mctx.fillRect(0, 0, rw, rh);
 
-  // Draw mirror contents clipped to rounded rect
+  // Draw mirror
   ctx.save();
-  const r = mh * 0.28; // corner radius
+  const r = mh * 0.28; // round corners
   ctx.beginPath();
   ctx.moveTo(mx + r, my);
   ctx.lineTo(mx + mw - r, my);
@@ -418,7 +483,7 @@ function drawRearviewMirror() {
 
   ctx.drawImage(mirrorCanvas, mx, my, mw, mh);
 
-  // Slight convex darkening vignette at edges (mirror curvature feel)
+  // Vignette
   const vig = ctx.createRadialGradient(mx + mw*0.5, my + mh*0.5, mh*0.1, mx + mw*0.5, my + mh*0.5, mw*0.62);
   vig.addColorStop(0,   'rgba(0,0,0,0)');
   vig.addColorStop(0.7, 'rgba(0,0,0,0.08)');
@@ -430,16 +495,13 @@ function drawRearviewMirror() {
 }
 
 
-// ─── BRIDGE — right side fades to transparent ─────────────────────────────────
+// ─── BRIDGE —───────────────────────────────────────────────────────────────────
 function drawBridge() {
   const bw = W * 0.28;
   const bh = VP_Y * 0.82;
   const bx = -W * 0.01;
   const by = VP_Y - bh * 0.90 + VP_Y * 0.05;
-
   ctx.save();
-
-  // Draw bridge image at full opacity into a clipping region
   ctx.globalAlpha = 0.80;
   if (bridgeImg.naturalWidth > 0) {
     ctx.drawImage(bridgeImg, bx, by, bw, bh);
@@ -451,15 +513,9 @@ function drawBridge() {
   ctx.restore();
 }
 
-// ─── SKY + BRIDGE FOG — slow drifting cloud wisps ────────────────────────────
-// Three layers of elliptical mist at different speeds and depths,
-// pooling near the horizon and washing over the bridge silhouette.
+// ─── SKY + BRIDGE FOG ───────────────────────────────────────────────────────────
 function drawFog(now) {
   const t = now * 0.001;
-
-  // Each cloud puff: { ox, oy, rx, ry, speed, phase, alpha }
-  // ox/oy are normalized 0–1 relative to W and VP_Y
-  // Pale moonlit wisps — must be LIGHTER than sky, not darker
   const PUFFS = [
     { ox: 0.08, oy: 0.88, rx: 0.32, ry: 0.06, spd: 0.018, ph: 0.00, a: 0.055 },
     { ox: 0.22, oy: 0.76, rx: 0.26, ry: 0.05, spd: 0.011, ph: 1.80, a: 0.040 },
@@ -475,20 +531,15 @@ function drawFog(now) {
   ctx.globalCompositeOperation = 'source-over';
 
   for (const p of PUFFS) {
-    // Gentle horizontal drift — oscillates back and forth
     const drift = Math.sin(t * p.spd * Math.PI * 2 + p.ph) * W * 0.04;
     const cx    = p.ox * W + drift;
     const cy    = p.oy * VP_Y;
     const rx    = p.rx * W;
     const ry    = p.ry * VP_Y;
-
-    // Clip to sky region — fog shouldn't bleed onto road
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, W, VP_Y + 12);
     ctx.clip();
-
-    // Pale cool mist — lavender-white, just brighter than the sky
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
     g.addColorStop(0,    `rgba(195, 185, 220, ${p.a})`);
     g.addColorStop(0.45, `rgba(170, 160, 205, ${p.a * 0.55})`);
@@ -505,10 +556,7 @@ function drawFog(now) {
 
     ctx.restore();
   }
-
-  // A single soft brightness suppression layer over the bridge area —
-  // makes it read as haze rather than just darkness
-  // Pale mist pooling around the bridge base
+ 
   const bridgeMist = ctx.createLinearGradient(-W * 0.01, VP_Y * 0.62, W * 0.32, VP_Y);
   bridgeMist.addColorStop(0,   'rgba(190, 180, 215, 0.10)');
   bridgeMist.addColorStop(0.5, 'rgba(170, 160, 200, 0.05)');
@@ -558,16 +606,15 @@ function drawSky(now) {
   ctx.fillStyle = hg; ctx.fillRect(0, VP_Y - 10, W, 26);
 }
 
-// ─── MOON — low and fat, rising behind the bridge ─────────────────────────────
+// ─── MOON ───────────────────────────────────────────────────────────────────
 function drawMoon() {
-  // Low in sky, near the bridge on the left — just risen over it
   const mx = W * 0.18;
   const my = VP_Y * 0.72;
   const mr = W * 0.019; // smaller — matches scale of other scenes
 
   ctx.save();
 
-  // Outer atmospheric halo — warm amber glow of a horizon moon
+  // Halo
   const halo = ctx.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 4.5);
   halo.addColorStop(0,   'rgba(255, 210, 100, 0.13)');
   halo.addColorStop(0.3, 'rgba(230, 175,  70, 0.07)');
@@ -578,7 +625,7 @@ function drawMoon() {
   ctx.fillStyle = halo;
   ctx.fill();
 
-  // Inner soft glow ring
+  // Inner glow
   const glow = ctx.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * 2.2);
   glow.addColorStop(0,   'rgba(255, 225, 140, 0.22)');
   glow.addColorStop(0.5, 'rgba(240, 195,  90, 0.09)');
@@ -588,7 +635,7 @@ function drawMoon() {
   ctx.fillStyle = glow;
   ctx.fill();
 
-  // Moon disc — warm ivory/amber-tinted from horizon atmosphere
+  // Moon
   const disc = ctx.createRadialGradient(mx - mr * 0.22, my - mr * 0.18, 0, mx, my, mr);
   disc.addColorStop(0,    'rgba(255, 248, 215, 0.96)');
   disc.addColorStop(0.55, 'rgba(250, 230, 175, 0.93)');
@@ -599,7 +646,7 @@ function drawMoon() {
   ctx.fillStyle = disc;
   ctx.fill();
 
-  // Subtle maria — faint darker patches
+  // Subtle maria
   ctx.globalAlpha = 0.12;
   ctx.fillStyle   = 'rgba(140, 110, 60, 1)';
   ctx.beginPath(); ctx.ellipse(mx - mr*0.18, my - mr*0.08, mr*0.28, mr*0.18, -0.4, 0, Math.PI*2); ctx.fill();
@@ -650,11 +697,7 @@ let lastFrameMs = 0;
 
 const DLG_SIZE = 28;
 const DLG_FONT = `'Silkscreen', monospace`;
-
-// Dialogue Y: lower quarter of screen, anchored so it never drifts into the road
 function dlgY() { return Math.max(H * 0.78, H - 165); }
-
-// Text drawn on ctx (scene canvas) so it lives UNDER post-processing dither
 function drawDialogue(now) {
   const dt = now - lastFrameMs;
   lastFrameMs = now;
@@ -706,13 +749,12 @@ function drawDialogue(now) {
     ctx.fillRect(tx + tw + 3, ty + 3, 4, DLG_SIZE - 4);
   }
 
-  // "click to continue" — arrow tethered just below the blinking cursor
+  // Continue arrow
   if (dlgReady) {
     const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
     const bob    = Math.sin(now * 0.0022) * 3.5;
-    // X tracks the cursor: end of displayed text + same offset as the cursor rect
     const tw     = ctx.measureText(displayed).width;
-    const arrowX = tx + tw + 3 + 2;              // center on the 4px cursor rect
+    const arrowX = tx + tw + 3 + 2;
     const arrowY = ty + DLG_SIZE + 14 + bob;
     const aw = 9, ah = 6;
     ctx.save();
@@ -731,7 +773,7 @@ function drawDialogue(now) {
   ctx.restore();
 }
 
-// dlgFading: true while old line is fading out before next line begins
+// Dialogue fade
 let dlgFading = false;
 
 function typeNextLine() {
@@ -790,7 +832,7 @@ function advanceDlg() {
 
 function endScene() {
   sceneEnding = true; dlgVisible = false;
-  // Fade out driving audio
+  // Fade out audio
   if (drivingNode && AudioCtx) {
     drivingNode.gain.linearRampToValueAtTime(0, AudioCtx.currentTime + 2.5);
   }
@@ -829,7 +871,6 @@ function applyPost() {
     offscreen.width = pw; offscreen.height = ph; postImageData = null;
   }
 
-  // Stamp overlay.png onto the scene canvas so it gets dithered with everything else
   if (overlayImg.naturalWidth > 0) {
     ctx.save();
     ctx.globalAlpha = 1;
@@ -851,7 +892,6 @@ function applyPost() {
   for (let y = 0; y < ph; y++) {
     for (let x = 0; x < pw; x++) {
       const i = (y * pw + x) * 4;
-      // CRT barrel distortion (subtle — divisor 14)
       const nx = (x / pw) * 2 - 1, ny = (y / ph) * 2 - 1;
       const sxf = (nx + nx * (ny * ny) / 14) * 0.5 + 0.5;
       const syf = (ny + ny * (nx * nx) / 14) * 0.5 + 0.5;
@@ -911,13 +951,13 @@ function frame(now) {
   drawReflectors();
   drawHeadlightCones();
 
-  // Snapshot the scene here — road/sky/trees but NO car, NO moon
+  // Snapshot goes here before everything in the main scene
   if (mirrorSceneCanvas.width !== W || mirrorSceneCanvas.height !== H) {
     mirrorSceneCanvas.width = W; mirrorSceneCanvas.height = H;
   }
   msctx.clearRect(0, 0, W, H);
   msctx.drawImage(scene, 0, 0);
-
+  drawWaterLeft(now);
   drawMoon();
   drawAirFreshener();
   drawCar();
