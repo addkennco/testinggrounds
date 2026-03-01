@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>A Weightless Stone</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Gochi+Hand&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -31,12 +31,6 @@
   #post { pointer-events: none; image-rendering: pixelated; image-rendering: crisp-edges; }
   #clicker { position: absolute; inset: 0; z-index: 5; cursor: default; }
   #fade { position: absolute; inset: 0; background: #000; pointer-events: none; opacity: 1; z-index: 10; }
-
-  #overlay {
-    position: fixed; inset: 0; width: 100vw; height: 100vh;
-    background: url('assets/overlay.png') center center / 100% 100% no-repeat;
-    pointer-events: none; z-index: 9999;
-  }
 </style>
 </head>
 <body>
@@ -46,7 +40,6 @@
   <div id="clicker"></div>
   <div id="fade"></div>
 </div>
-<div id="overlay"></div>
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
 const Audio = {
@@ -83,10 +76,8 @@ async function initAudio() {
     Audio.load('splash',  'assets/splash.mp3'),
     Audio.load('music',   'assets/title.mp3'),
   ]);
-  // Crickets fade in slowly
   ambientNode = Audio.play('ambient', { loop: true, volume: 0 });
   if (ambientNode) Audio.fade(ambientNode, 0.50, 5);
-  // Title music comes in very softly underneath — this is the end, after all
   const music = Audio.play('music', { loop: true, volume: 0 });
   if (music) Audio.fade(music, 0.28, 8);
 }
@@ -111,11 +102,11 @@ window.addEventListener('resize',resize);
 
 // ─── ASSETS ───────────────────────────────────────────────────────────────────
 const bridgeImg=new Image(); bridgeImg.src='assets/bridge.png';
+const overlayImg=new Image(); overlayImg.src='assets/overlay.png';
 const cattailsImg=new Image(); cattailsImg.src='assets/cattails.png';
 const rushesImg=new Image(); rushesImg.src='assets/rushes.png';
 
 // ─── END STATE ────────────────────────────────────────────────────────────────
-// CREDITS → (choiceAlpha rises) → click → ETERNAL or title.html
 let endState='CREDITS';
 let sceneStart=null;
 let creditsAlpha=0, choiceAlpha=0, choiceHover=-1;
@@ -134,8 +125,7 @@ function perlin2(x,y){
   return lerp(lerp(grad2(aa,xf,yf),grad2(ba,xf-1,yf),u),lerp(grad2(ab,xf,yf-1),grad2(bb,xf-1,yf-1),u),v);
 }
 
-// ─── SKY (almost dawn) ────────────────────────────────────────────────────────
-// The night is ending — stars nearly gone, horizon just beginning to lift
+// ─── SKY ───────────────────────────────────────────────────────────────────────
 const NIGHT={
   top:'#04030e',mid:'#080d18',hor:'#1a2035',glow:'#2e3045',
   waterTop:'rgba(10,14,28,0.94)',waterMid:'rgba(8,10,22,0.97)',starAlpha:0.22
@@ -154,15 +144,11 @@ function drawSky(now) {
   grad.addColorStop(0.82, NIGHT.hor);
   grad.addColorStop(1,    NIGHT.glow);
   ctx.fillStyle=grad; ctx.fillRect(0,0,W,HORIZON_Y+4);
-
-  // Pre-dawn horizon blush — warm grey-rose just above treeline
   const blush=ctx.createLinearGradient(0,HORIZON_Y*0.72,0,HORIZON_Y);
   blush.addColorStop(0,'rgba(0,0,0,0)');
   blush.addColorStop(0.5,'rgba(80,70,90,0.18)');
   blush.addColorStop(1,'rgba(120,95,90,0.28)');
   ctx.fillStyle=blush; ctx.fillRect(0,HORIZON_Y*0.72,W,HORIZON_Y*0.28);
-
-  // Stars — very dim, almost gone
   const t=now*0.001;
   for (const st of _stars) {
     const tw=(0.2+0.3*Math.abs(Math.sin(t*st.sp+st.ph)))*NIGHT.starAlpha;
@@ -197,7 +183,7 @@ function drawRushes() {
   ctx.save(); ctx.globalAlpha=0.88; ctx.drawImage(rushesImg,W*0.80,HORIZON_Y-rh*0.55,rw,rh); ctx.restore();
 }
 
-// ─── DEBRIS (twigs + leaves drifting across water) ───────────────────────────
+// ─── DEBRIS ──────────────────────────────────────────────────────────────────
 class Debris {
   constructor(offscreen=false) { this._init(offscreen); }
   _init(offscreen=false) {
@@ -274,7 +260,6 @@ function drawWater(now) {
   grad.addColorStop(1,   NIGHT.waterMid);
   ctx.fillStyle=grad; ctx.fillRect(0,HORIZON_Y,W,WATER_H);
   drawHillReflection(now); drawHorizonShimmer(now);
-  // Dawn blush reflected faintly in the near water
   const blushRefl=ctx.createLinearGradient(0,HORIZON_Y,0,HORIZON_Y+WATER_H*0.25);
   blushRefl.addColorStop(0,'rgba(120,95,90,0.12)'); blushRefl.addColorStop(1,'rgba(0,0,0,0)');
   ctx.fillStyle=blushRefl; ctx.fillRect(0,HORIZON_Y,W,WATER_H*0.25);
@@ -293,8 +278,6 @@ function drawHillReflection(now) {
   fade2.addColorStop(0,'rgba(6,4,14,0.55)'); fade2.addColorStop(1,'rgba(6,4,14,0)');
   ctx.globalAlpha=1; ctx.fillStyle=fade2; ctx.fillRect(0,HORIZON_Y,W,reflH); ctx.restore();
 }
-
-// Moon is behind the player at this hour — reflection not drawn
 
 function drawHorizonShimmer(now) {
   const t=now*0.001; ctx.save(); ctx.beginPath(); ctx.moveTo(0,HORIZON_Y+1);
@@ -369,11 +352,9 @@ class Firefly {
 let fireflies=[];
 
 // ─── LILY PADS ────────────────────────────────────────────────────────────────
-// Stable clump in bottom-left + a couple loose pads mid-water.
-// No lateral drift — they bob gently in place like rooted plants.
 class LilyPad {
   constructor(ax, ay, radius, gapAngle) {
-    this.ax=ax; this.ay=ay;          // anchor position (proportional, resolved in draw)
+    this.ax=ax; this.ay=ay;
     this.baseRadius=radius;
     this.gapAngle=gapAngle;
     this.phase=Math.random()*Math.PI*2;
@@ -406,7 +387,6 @@ class LilyPad {
 }
 let lilyPads=[];
 function initLilyPads(){
-  // Clump: bottom-left, overlapping pads of varying size
   const clump=[
     [0.10, 0.82, 42, Math.PI*0.6],
     [0.14, 0.88, 36, Math.PI*1.1],
@@ -415,7 +395,6 @@ function initLilyPads(){
     [0.12, 0.94, 22, Math.PI*0.9],
     [0.05, 0.84, 20, Math.PI*1.4],
   ];
-  // A couple of lone pads drifting mid-water
   const loose=[
     [0.52, 0.45, 26, Math.PI*0.5],
     [0.68, 0.62, 30, Math.PI*1.2],
@@ -507,11 +486,11 @@ function drawStone(){
   ctx.beginPath();ctx.ellipse(stone.x,stone.y,r,r*0.62,0,0,Math.PI*2);ctx.fill();ctx.restore();
 }
 
-// ─── CREDITS + CHOICE UI ──────────────────────────────────────────────────────
-// Drawn on scene canvas so it passes through the dither/CRT pipeline
+// ─── CREDITS ─────────────────────────────────────────────────────────────────
+const DLG_SIZE = 28;
+
 function getChoiceRects(){
-  const fs=Math.round(Math.min(W*0.022,18));
-  const tx=W*0.09, rowH=fs+28;
+  const tx=W*0.09, rowH=DLG_SIZE+16;
   const opts=["I'm not ready to leave yet.","I'll be back soon, promise."];
   return opts.map((text,i)=>({
     text, bx:tx, by:H*0.64+i*(rowH+10), bw:W*0.82, bh:rowH,
@@ -534,8 +513,6 @@ function drawCreditsAndChoices(now){
     const fs=Math.round(Math.min(W*0.030,26));
     ctx.save();
     ctx.globalAlpha=creditsAlpha; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
-
-    // Title glow + body
     ctx.font=`700 ${fs}px 'Silkscreen', monospace`;
     ctx.shadowColor='rgba(160,220,255,0.90)'; ctx.shadowBlur=22;
     ctx.fillStyle='rgba(180,230,255,0.30)'; ctx.fillText('A WEIGHTLESS STONE',W*0.5,titleY);
@@ -546,13 +523,11 @@ function drawCreditsAndChoices(now){
 
   if(choiceAlpha>0.01&&endState!=='ETERNAL'){
     const rects=getChoiceRects();
-    const fs2=Math.round(Math.min(W*0.022,18));
-    ctx.save(); ctx.font=`${fs2}px 'Silkscreen', monospace`;
+    ctx.save(); ctx.font=`${DLG_SIZE}px 'Silkscreen', monospace`;
     ctx.textAlign='left'; ctx.textBaseline='middle';
     rects.forEach(({text,bx,by,bw,bh},i)=>{
       const hover=i===choiceHover;
       ctx.globalAlpha=choiceAlpha;
-      // Double-draw glow — same as lake choices
       ctx.shadowColor=hover?'rgba(160,210,255,0.95)':'rgba(100,160,220,0.55)';
       ctx.shadowBlur=hover?22:8;
       ctx.fillStyle=hover?'rgba(232,244,255,0.55)':'rgba(122,172,204,0.45)';
@@ -564,12 +539,10 @@ function drawCreditsAndChoices(now){
     ctx.restore();
   }
 
-  // In eternal mode: return-to-menu arrow near the shore, fades in after a few throws
   if (endState === 'ETERNAL' && eternalThrows >= 3 && creditsAlpha <= 0) {
     eternalArrowAlpha = Math.min(1, eternalArrowAlpha + 0.004);
     const pulse = 0.5 + 0.5 * Math.abs(Math.sin(now * 0.0014));
     const bob   = Math.sin(now * 0.002) * 3;
-    // Sit just inside the top of the shore band
     const ax = W * 0.5, ay = H - SHORE_H * 0.82 + bob;
     const size = 28;
     ctx.save();
@@ -595,6 +568,9 @@ let postImageData=null;
 function applyPost(){
   const pw=Math.ceil(W/PIX),ph=Math.ceil(H/PIX);
   if(offscreen.width!==pw||offscreen.height!==ph){offscreen.width=pw;offscreen.height=ph;postImageData=null;}
+  if (overlayImg.naturalWidth > 0) {
+    ctx.save(); ctx.globalAlpha=1; ctx.drawImage(overlayImg,0,0,W,H); ctx.restore();
+  }
   octx.clearRect(0,0,pw,ph); octx.drawImage(scene,0,0,pw,ph);
   const src=octx.getImageData(0,0,pw,ph),sd=src.data;
   if(!postImageData||postImageData.width!==pw||postImageData.height!==ph) postImageData=octx.createImageData(pw,ph);
@@ -647,36 +623,45 @@ function frame(now){
 }
 
 // ─── INPUT ────────────────────────────────────────────────────────────────────
+function getWrapOffset() {
+  const rect = document.getElementById('wrap').getBoundingClientRect();
+  return { x: rect.left, y: rect.top };
+}
+
 document.getElementById('clicker').addEventListener('mousemove',e=>{
+  const off = getWrapOffset();
+  const mx = e.clientX - off.x;
+  const my = e.clientY - off.y;
   if(endState==='ETERNAL'){
-    // Check arrow hover
     const ax=W*0.5, ay=H-SHORE_H*0.82, size=28;
-    const overArrow=eternalThrows>=3 && e.clientX>ax-size-10 && e.clientX<ax+size+10 && e.clientY>ay-size*0.8-10 && e.clientY<ay+size*0.5+10;
+    const overArrow=eternalThrows>=3 && mx>ax-size-10 && mx<ax+size+10 && my>ay-size*0.8-10 && my<ay+size*0.5+10;
     document.getElementById('clicker').style.cursor=overArrow?'none':'default';
     return;
   }
   const rects=getChoiceRects(); choiceHover=-1;
-  rects.forEach(({bx,by,bw,bh},i)=>{if(e.clientX>=bx&&e.clientX<=bx+bw&&e.clientY>=by&&e.clientY<=by+bh)choiceHover=i;});
+  rects.forEach(({bx,by,bw,bh},i)=>{if(mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh)choiceHover=i;});
   document.getElementById('clicker').style.cursor=choiceHover!==-1?'none':'default';
 });
 
 document.getElementById('clicker').addEventListener('click',e=>{
   if(!audioReady) initAudio();
+  const off = getWrapOffset();
+  const mx = e.clientX - off.x;
+  const my = e.clientY - off.y;
   if(endState==='ETERNAL'){
-    // Arrow hit test — return to menu
     const ax=W*0.5, ay=H-SHORE_H*0.82, size=28;
-    if(eternalThrows>=3 && e.clientX>ax-size-10 && e.clientX<ax+size+10 && e.clientY>ay-size*0.8-10 && e.clientY<ay+size*0.5+10){
+    if(eternalThrows>=3 && mx>ax-size-10 && mx<ax+size+10 && my>ay-size*0.8-10 && my<ay+size*0.5+10){
       const f=document.getElementById('fade');f.style.transition='opacity 2.5s ease';f.style.opacity='1';
-      setTimeout(()=>{window.location.href='title.html';},2600);
+      setTimeout(()=>{window.location.href='index.html';},2600);
       return;
     }
-    throwStone(e.clientX);return;
+    throwStone(mx);return;
   }
   const rects=getChoiceRects();
   rects.forEach(({bx,by,bw,bh},i)=>{
-    if(e.clientX>=bx&&e.clientX<=bx+bw&&e.clientY>=by&&e.clientY<=by+bh){
+    if(mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh){
       if(i===0){endState='ETERNAL';document.getElementById('clicker').style.cursor='default';}
-      else{const f=document.getElementById('fade');f.style.transition='opacity 2.5s ease';f.style.opacity='1';setTimeout(()=>{window.location.href='title.html';},2600);}
+      else{const f=document.getElementById('fade');f.style.transition='opacity 2.5s ease';f.style.opacity='1';setTimeout(()=>{window.location.href='index.html';},2600);}
     }
   });
 });
@@ -684,7 +669,7 @@ document.getElementById('clicker').addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{
   if((e.key==='Escape'||e.key==='m')&&endState!=='ETERNAL'){
     const f=document.getElementById('fade');f.style.transition='opacity 2.5s ease';f.style.opacity='1';
-    setTimeout(()=>{window.location.href='title.html';},2600);
+    setTimeout(()=>{window.location.href='index.html';},2600);
   }
 });
 
