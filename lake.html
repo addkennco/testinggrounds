@@ -472,7 +472,7 @@ function drawShoes(now) {
   const t    = now * 0.001;
   const sway = Math.sin(t * 0.4) * 1.2;
   const baseY = H - SHORE_H * 0.32;
-  const cx    = W * -0.35;
+  const cx    = W * 0.85;
   const gap   = 38;
   drawOneShoe(ctx, cx - gap, baseY, -0.18, -1, sway * 0.6);
   drawOneShoe(ctx, cx + gap, baseY,  0.18,  1, sway * 0.4);
