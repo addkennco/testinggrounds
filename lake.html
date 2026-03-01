@@ -1103,25 +1103,25 @@ function drawLetter(now, w, h) {
   const poem = POEMS[HELD.poemIndex];
   const lines = HELD.phase === 'poem' ? poem.slice(0, HELD.lineIndex+1) : poem;
   const fontSize = Math.max(32, Math.round(h * 0.065));
-  ctx.font = `${fontSize}px 'Love Ya Like A Sister', cursive`;
+  ctx.font = `italic ${fontSize}px 'Love Ya Like A Sister', cursive`;
   ctx.fillStyle = '#2a1e10';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
-
   const padX    = w * 0.08;
   const maxW    = w * 0.84; 
   const lineH   = fontSize * 1.5;
   let ty = h * 0.08;
   let rowIdx = 0;
-
+  const slant = 0.25;
   for (let i=0; i<lines.length; i++) {
     const wrapped = wrapText(ctx, lines[i], maxW);
     for (const wline of wrapped) {
       const wobble = Math.sin(rowIdx * 2.4 + now*0.0003) * 1.2;
       ctx.save();
       ctx.globalAlpha = (HELD.phase==='analysis') ? 0.35 : 1.0;
-      ctx.fillText(wline, padX, ty + wobble);
+      ctx.transform(1, 0, -slant, 1, padX + slant * (ty + wobble), 0);
+      ctx.fillText(wline, 0, ty + wobble);
       ctx.restore();
       ty += lineH;
       rowIdx++;
