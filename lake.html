@@ -8,7 +8,6 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
-  /* ── LAYER 1: viewport root — pagebkg.png fills the bars/corners ── */
   body {
     background: #000 url('assets/pagebkg.png') center center / cover no-repeat;
     overflow: hidden;
@@ -19,7 +18,6 @@
     justify-content: center;
   }
 
-  /* ── LAYER 2: 16:9 game container — canvases live here ── */
   #wrap {
     position: relative;
     width:  min(100vw, 177.78vh);
@@ -43,8 +41,6 @@
   #fade.clear { opacity: 0; transition: opacity 1.6s ease; }
   #fade.out   { opacity: 1; pointer-events: all; transition: opacity 3s ease; }
 
-  /* overlay.png is composited onto the scene canvas before post-processing
-     so it gets dithered naturally — no separate DOM element needed */
 </style>
 </head>
 <body>
@@ -89,8 +85,8 @@ const Audio = {
   },
 };
 
-let ambientNode = null;   // crickets/frogs loop
-let musicNode   = null;   // optional background music
+let ambientNode = null;  
+let musicNode   = null;  
 
 async function initAudio() {
   Audio.init();
@@ -100,7 +96,6 @@ async function initAudio() {
     Audio.load('splash',  'assets/splash.mp3'),
     Audio.load('crinkle', 'assets/paper_crinkle.mp3'),
   ]);
-  // Start ambient loop
   ambientNode = Audio.play('ambient', { loop: true, volume: 0, fadeIn: 0 });
   if (ambientNode) Audio.fade(ambientNode, 0.55, 4);
 }
@@ -145,21 +140,21 @@ const S = {
   S3_INTRO:  0,   // "The shore looks the same..."
   S3_THROW:  1,   // throw 3-5 stones
   S3_AFTER:  2,   // after-throw choice
-  S4_LETTER: 3,   // letter held up
+  S4_LETTER: 3,   // letter
   S5_THROW:  4,   // 5 throws, fireflies, no text
-  S5_TEXT:   5,   // "I keep thinking I'll run out..."
+  S5_TEXT:   5,   // "I keep thinking I'll run out of things to remember..."
   S6_PRE:    6,   // "if you were here, you'd tell me to stop counting"
   S6_THROW:  7,   // one throw
   S6_POST:   8,   // "And I would pretend not to hear you"
   S7_PRE:    9,   // "You loved these lilypads..."
-  S7_PHOTO:  10,  // photo held up
+  S7_PHOTO:  10,  // photo
   S8_THROW:  11,  // infinite throws + return to car
   S8_LAST:   12,  // "one more for good luck"
   ENDING:    13,
 };
 let ss = S.S3_INTRO; // current scene state
 
-// Sky phase transition — brief darkening when phase changes
+// Sky phase transition 
 let _prevSkyPhase   = -1;
 let _phaseChangeNow = -99999;
 
@@ -172,8 +167,7 @@ function skyPhase() {
 
 function firefliesActive() { return ss >= S.S5_THROW; }
 
-// ─── SKY PHASE DATA ───────────────────────────────────────────────────────────
-// Each phase: sky gradient stops + moon position + horizon glow color
+// ─── SKY PHASES ───────────────────────────────────────────────────────────
 const SKY = [
   { // 0: dusk
     top:  '#0d0520', mid:  '#1c0a32', hor:  '#3d1545', glow: '#7a2a40',
@@ -201,7 +195,7 @@ const SKY = [
   },
 ];
 
-// ─── PERLIN NOISE (for moon reflection) ───────────────────────────────────────
+// ─── PERLIN ──────────────────────────────────────────────────────────────
 function fade(t)       { return t*t*t*(t*(t*6-15)+10); }
 function lerp(a, b, t) { return a + t*(b-a); }
 
@@ -246,7 +240,6 @@ function drawSky(now) {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, HORIZON_Y + 4);
 
-  // Stars (fade in with phase)
   const t = now * 0.001;
   for (const st of _stars) {
     const tw = (0.35 + 0.65*Math.abs(Math.sin(t*st.sp+st.ph))) * ph.starAlpha;
@@ -260,7 +253,7 @@ function drawSky(now) {
 
   // Moon
   const mx = ph.moonX * W, my = ph.moonY * HORIZON_Y, mr = ph.moonR;
-  // Halo bloom — lighter composite makes it glow against the dark sky
+  // Halo
   const halo = ctx.createRadialGradient(mx,my,mr*0.5, mx,my,mr*6);
   halo.addColorStop(0, 'rgba(220,235,255,0.22)');
   halo.addColorStop(0.4, 'rgba(200,220,255,0.10)');
@@ -279,7 +272,7 @@ function drawSky(now) {
   drawTrees();
   drawCattails(now);
 
-  // Sky phase transition — brief darkening cross-fade
+  // Sky phase transition
   const curPhase = skyPhase();
   if (curPhase !== _prevSkyPhase) { _prevSkyPhase = curPhase; _phaseChangeNow = now; }
   const phaseT = Math.min(1, (now - _phaseChangeNow) / 2200);
@@ -306,7 +299,7 @@ function drawTrees() {
   ctx.restore();
 }
 
-// ─── CATTAILS ─────────────────────────────────────────────────────────────────
+// ─── CATTAILS & RUSHES ─────────────────────────────────────────────────────────
 function drawCattails(now) {
   if (cattailsImg.naturalWidth <= 0) return;
   const aspect = cattailsImg.naturalWidth / cattailsImg.naturalHeight;
@@ -317,7 +310,6 @@ function drawCattails(now) {
   ctx.restore();
 }
 
-// ─── RUSHES (front-right shore) ──────────────────────────────────────────────
 function drawRushes() {
   if (rushesImg.naturalWidth <= 0) return;
   const aspect = rushesImg.naturalWidth / rushesImg.naturalHeight;
@@ -334,7 +326,6 @@ function drawRushes() {
 function drawBridge() {
   if (bridgeImg.naturalWidth <= 0) return;
   const aspect = bridgeImg.naturalWidth / bridgeImg.naturalHeight;
-  // Full width — scale height to match
   const bw = W;
   const bh = bw / aspect;
   ctx.save();
@@ -343,7 +334,7 @@ function drawBridge() {
   ctx.restore();
 }
 
-// ─── WATER SURFACE ────────────────────────────────────────────────────────────
+// ─── WATER ────────────────────────────────────────────────────────────────────
 function drawWater(now) {
   const ph = SKY[skyPhase()];
   const grad = ctx.createLinearGradient(0, HORIZON_Y, 0, H - SHORE_H);
@@ -465,7 +456,7 @@ function drawBottomShore(now) {
     ctx.stroke(); ctx.restore();
   }
 
-  // Foam wash — faint band at shore edge
+  // Breakers
   const foamGrad = ctx.createLinearGradient(0, H-SHORE_H*0.72-4, 0, H-SHORE_H*0.72+18);
   foamGrad.addColorStop(0,   'rgba(160,220,255,0)');
   foamGrad.addColorStop(0.4, 'rgba(160,220,255,0.06)');
@@ -476,12 +467,12 @@ function drawBottomShore(now) {
   drawShoes(now);
 }
 
-// ─── SHOES (lifted from skip_a_stone.html) ────────────────────────────────────
+// ─── SHOES ───────────────────────────────────────────────────
 function drawShoes(now) {
   const t    = now * 0.001;
   const sway = Math.sin(t * 0.4) * 1.2;
   const baseY = H - SHORE_H * 0.32;
-  const cx    = W * 0.35;   // left of center — hip-toss stance
+  const cx    = W * 0.35;   // left of center
   const gap   = 38;
   drawOneShoe(ctx, cx - gap, baseY, -1, sway * 0.6);
   drawOneShoe(ctx, cx + gap, baseY,  1, sway * 0.4);
@@ -559,21 +550,20 @@ class Firefly {
     const waterH = H - SHORE_H - HORIZON_Y;
     this.y = HORIZON_Y + 10 + Math.random() * waterH * 0.82;
     this.vx = (Math.random()-0.5)*0.18;
-    this.vy = -0.04 - Math.random()*0.07;  // slower upward drift
+    this.vy = -0.04 - Math.random()*0.07; 
     this.wobble = Math.random()*Math.PI*2;
     this.wobbleSpeed = 0.018 + Math.random()*0.025;
     this.wobbleAmp   = 0.8 + Math.random()*1.8;
     this.blinkSpeed  = 0.6 + Math.random()*2.2;
     this.blinkPhase  = Math.random()*Math.PI*2;
     this.size  = 1.4 + Math.random()*1.8;
-    this.green = Math.random() < 0.72;  // green-gold vs warm gold
+    this.green = Math.random() < 0.72; 
     this.alpha = 0.4 + Math.random()*0.6;
   }
   update() {
     this.wobble += this.wobbleSpeed;
     this.x += this.vx + Math.sin(this.wobble)*this.wobbleAmp*0.04;
     this.y += this.vy;
-    // Keep in water zone (between horizon and shore), wrapping gently
     const waterBot = H - SHORE_H - 10;
     const waterTop = HORIZON_Y + 8;
     if (this.y < waterTop || this.y > waterBot || this.x < -20 || this.x > W+20) this.reset();
@@ -585,7 +575,6 @@ class Firefly {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = a * 0.65;
-    // Soft radial gradient glow — no hard edge
     const glowR = this.size * 7;
     const grd = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowR);
     grd.addColorStop(0,   `rgba(${r},${g},${b},0.95)`);
@@ -597,7 +586,7 @@ class Firefly {
     ctx.restore();
   }
 }
-let fireflies = [];   // populated after first resize() so W/H/HORIZON_Y are valid
+let fireflies = [];
 let fireflyAlpha = 0;
 
 function drawFireflies(now) {
@@ -606,7 +595,6 @@ function drawFireflies(now) {
   if (fireflyAlpha <= 0) return;
   for (const f of fireflies) {
     f.update();
-    // Bake scene-level alpha into the firefly's own alpha so 'lighter' composite works
     const savedAlpha = f.alpha;
     f.alpha *= fireflyAlpha;
     f.draw(now);
@@ -615,16 +603,13 @@ function drawFireflies(now) {
 }
 
 // ─── LILY PADS ────────────────────────────────────────────────────────────────
-// Stable, rooted pads — gentle individual bob, no lateral drift.
-// Moonlight rim: each pad draws a shifted "ghost" behind itself for a unified
-// left-side highlight, as if one light source catches the whole clump edge.
-const MOON_SHIFT_X = -4;  // moonlight from upper-left
+const MOON_SHIFT_X = -4;
 const MOON_SHIFT_Y = -2;
 
 class LilyPad {
   constructor(ax, ay, radius, gapAngle) {
-    this.ax         = ax;       // anchor X as proportion of W
-    this.ay         = ay;       // anchor Y as proportion of water zone (0–1)
+    this.ax         = ax; 
+    this.ay         = ay;
     this.baseRadius = radius;
     this.gapAngle   = gapAngle;
     this.phase      = Math.random() * Math.PI * 2;
@@ -655,7 +640,7 @@ class LilyPad {
 
     ctx.save(); ctx.translate(x, y + bob);
 
-    // Moonlight rim — ghost shape shifted upper-left, drawn first (underneath)
+    // Moonlight rim
     this._buildPath(ctx, r * 1.02, scaleY, MOON_SHIFT_X, MOON_SHIFT_Y);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -665,7 +650,7 @@ class LilyPad {
     ctx.fill();
     ctx.restore();
 
-    // Pad body on top
+    // Lilypad shape
     this._buildPath(ctx, r, scaleY, 0, 0);
     const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
     bodyGrad.addColorStop(0,   'rgba(14,36,18,0.97)');
@@ -685,10 +670,9 @@ class LilyPad {
 }
 
 let lilyPads  = [];
-let lilyClump = [];  // kept for compatibility with existing sort/draw calls
+let lilyClump = []; 
 
 function initLilyPads() {
-  // Main spread: a few lone pads mid-water
   const spread = [
     [0.42, 0.38, 24, Math.PI*0.5],
     [0.62, 0.55, 28, Math.PI*1.3],
@@ -698,7 +682,6 @@ function initLilyPads() {
 }
 
 function initLilyClump() {
-  // Dense clump bottom-right — overlapping, varied sizes
   const clump = [
     [0.76, 0.82, 38, Math.PI*0.6],
     [0.82, 0.88, 32, Math.PI*1.2],
@@ -711,7 +694,7 @@ function initLilyClump() {
   lilyClump = clump.map(([ax,ay,r,g]) => new LilyPad(ax,ay,r,g));
 }
 
-// ─── DEBRIS (twigs + leaves drifting across water) ───────────────────────────
+// ─── DEBRIS ───────────────────────────────────────────────────
 class Debris {
   constructor(offscreen=false) { this._init(offscreen); }
   _init(offscreen=false) {
@@ -760,7 +743,7 @@ class Debris {
         ctx.stroke();
       }
       ctx.restore();
-      // Leading-edge water highlight
+      // Leading-edge Moonlight rim
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.strokeStyle = 'rgba(70,185,140,0.65)';
@@ -773,16 +756,16 @@ class Debris {
       ctx.restore();
 
     } else {
-      // Leaf body — very dark
+      // Leaf
       ctx.save();
       ctx.fillStyle = 'rgba(6,18,10,0.97)';
       ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 3;
       ctx.beginPath(); ctx.ellipse(0, 0, this.rx, this.ry, 0, 0, Math.PI * 2); ctx.fill();
-      // Midrib
+      // Stem
       ctx.strokeStyle = 'rgba(20,50,28,0.6)'; ctx.lineWidth = 0.6;
       ctx.beginPath(); ctx.moveTo(-this.rx * 0.8, 0); ctx.lineTo(this.rx * 0.8, 0); ctx.stroke();
       ctx.restore();
-      // Leading-edge highlight
+      // Leading-edge Moonlight rim
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.strokeStyle = 'rgba(70,185,140,0.60)';
@@ -914,7 +897,6 @@ function updateStone(now,dt) {
     skipCount++;
     if (stone.skipIndex>=stone.maxSkips) {
       stone.phase='sinking'; stone.sinkT=0;
-      // Don't call onThrowDone yet — wait for sink
     } else {
       stone.skipIndex++; stone.arcT=0; stone.arcDur*=0.78; stone.phase='arc';
     }
@@ -938,8 +920,7 @@ function drawStone() {
   ctx.restore();
 }
 
-// ─── HELD ITEM (letter + photo) ───────────────────────────────────────────────
-// Shared animation: slides up from bottom, slightly tilted, partially off-frame
+// ─── HELD ITEM ──────────────────────────────────────────────────────────────────────
 const HELD = {
   active:     false,
   type:       null,    // 'letter' or 'photo'
@@ -1064,7 +1045,7 @@ function drawHeldItem(now) {
   if (!HELD.active) return;
   const itemW = Math.min(W * 0.70, 560);
   const itemH = H * 0.72;
-  const itemX = (W - itemW) * 0.5 + W * 0.022; // slight right offset
+  const itemX = (W - itemW) * 0.5 + W * 0.022;
 
   ctx.save();
   ctx.translate(itemX + itemW*0.5, HELD.y + itemH*0.5);
@@ -1079,10 +1060,8 @@ function drawHeldItem(now) {
 
   ctx.restore();
 
-  // Analysis text — drawn OUTSIDE the letter transform (normal dialogue position)
   if (HELD.type === 'letter') drawLetterAnalysis(now);
 
-  // "put it away" / "click to continue" prompt — shown when not mid-animation
   if (!HELD.animating && !HELD.dismissing) {
     const pulse  = 0.22 + 0.22*Math.abs(Math.sin(now*0.0018));
     const promptY = H - SHORE_H * 0.35;
@@ -1102,7 +1081,6 @@ function drawHeldItem(now) {
   }
 }
 
-// Word-wrap a string to fit maxW pixels, returns array of lines
 function wrapText(ctx, text, maxW) {
   const words = text.split(' ');
   const out = [];
@@ -1134,7 +1112,7 @@ function drawLetter(now, w, h) {
   ctx.fillRect(4, 4, w, h);
   ctx.restore();
 
-  // Poem text (Love Ya Like A Sister) — word-wrapped to fit paper
+  // Poems
   const poem = POEMS[HELD.poemIndex];
   const lines = HELD.phase === 'poem' ? poem.slice(0, HELD.lineIndex+1) : poem;
   const fontSize = Math.max(32, Math.round(h * 0.065));
@@ -1145,7 +1123,7 @@ function drawLetter(now, w, h) {
   ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
 
   const padX    = w * 0.08;
-  const maxW    = w * 0.84;   // text must stay within this width
+  const maxW    = w * 0.84; 
   const lineH   = fontSize * 1.5;
   let ty = h * 0.08;
   let rowIdx = 0;
@@ -1162,10 +1140,8 @@ function drawLetter(now, w, h) {
       rowIdx++;
     }
   }
-  // Analysis text is drawn OUTSIDE the letter via drawLetterAnalysis() in drawHeldItem
 }
 
-// Analysis text: one line at a time, drawn at fixed position below the paper
 function drawLetterAnalysis(now) {
   if (HELD.phase !== 'analysis') return;
   const currentLine = LETTER_ANALYSIS[HELD.dlgLine];
@@ -1173,15 +1149,13 @@ function drawLetterAnalysis(now) {
   const displayed = currentLine.slice(0, HELD.dlgChar);
 
   const tx     = W * 0.09;
-  const ty     = dlgY();   // same anchor as regular dialogue
+  const ty     = dlgY();
   const afSize = 28;
 
   ctx.save();
   ctx.font         = `${afSize}px 'Silkscreen', monospace`;
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
-
-  // Double-draw for glow (same as regular dialogue)
   ctx.shadowColor = 'rgba(150,215,255,0.65)'; ctx.shadowBlur = 14;
   ctx.fillStyle   = 'rgba(175,215,240,0.38)';
   ctx.fillText(displayed, tx, ty);
@@ -1200,13 +1174,12 @@ function drawLetterAnalysis(now) {
 }
 
 function drawPhoto(now, w, h) {
-  // White border / photo mount
   ctx.fillStyle = '#f0ece4';
   ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = '#e8e2d8';
   ctx.fillRect(6, 6, w-12, h-12);
 
-  // Portrait image
+  // Portrait
   if (portraitImg.naturalWidth > 0) {
     const pad = 18;
     ctx.drawImage(portraitImg, pad, pad, w-pad*2, h-pad*2-30);
@@ -1224,18 +1197,15 @@ function advanceLetter() {
     if (HELD.lineIndex < POEMS[HELD.poemIndex].length - 1) {
       HELD.lineIndex++;
     } else {
-      // Switch to analysis — slide letter down so analysis text has clear space
       HELD.phase   = 'analysis';
       HELD.dlgLine = 0;
       HELD.dlgChar = 0;
-      // Animate letter mostly off bottom — paper edge peeks up, analysis area fully clear
       const itemH = H * 0.72;
       HELD.startY    = HELD.y;
-      HELD.targetY   = H - itemH * 0.18;  // only top 18% of paper peeking up
+      HELD.targetY   = H - itemH * 0.18; 
       HELD.animT     = 0;
       HELD.animating = true;
       HELD.dismissing= false;
-      // Wait for slide to finish before starting typing
       const waitTyping = () => {
         if (HELD.animating) { setTimeout(waitTyping, 60); return; }
         startLetterTyping();
@@ -1244,7 +1214,6 @@ function advanceLetter() {
     }
   } else if (HELD.phase === 'analysis') {
     if (HELD.dlgTyping) {
-      // Skip to end of current line
       clearTimeout(HELD.dlgTimer);
       HELD.dlgChar   = LETTER_ANALYSIS[HELD.dlgLine].length;
       HELD.dlgTyping = false;
@@ -1272,12 +1241,10 @@ function startLetterTyping() {
   tick();
 }
 
-// ─── DIALOGUE SYSTEM ──────────────────────────────────────────────────────────
-// All text drawn on ctx (scene canvas) so dither applies to it
+// ─── DIALOGUE ─────────────────────────────────────────────────────────
 const DLG_SIZE  = 28;
 const DLG_FONT  = `'Silkscreen', monospace`;
 
-// Dialogue Y: anchored in lower quarter, never drifts into the water
 function dlgY() { return Math.max(H * 0.78, H - 165); }
 
 let dlgLines    = [];
@@ -1294,7 +1261,7 @@ let choiceHover = -1;
 let cursorOn    = true;
 let cursorMs    = 0;
 let lastDlgMs   = 0;
-let dlgCallback = null;  // called when all lines + choice done
+let dlgCallback = null; 
 
 function startDialogue(lines, callback) {
   dlgLines    = lines;
@@ -1343,7 +1310,6 @@ function endDialogue() {
 function pickChoice(i) {
   if (!choiceMode) return;
   choiceMode=false; choiceOpts=[];
-  // Advance past the choice node — continue to any remaining lines
   dlgIndex++;
   typeNextLine();
 }
@@ -1361,7 +1327,7 @@ function drawDialogue(now) {
   const target = dlgVisible?1:0;
   dlgAlpha += (target-dlgAlpha)*0.07;
   if (!dlgVisible && dlgAlpha<=0.01) return;
-  if (HELD.active) return;  // don't draw dialogue over held items
+  if (HELD.active) return; 
 
   ctx.save();
   ctx.globalAlpha = dlgAlpha;
@@ -1373,7 +1339,6 @@ function drawDialogue(now) {
       ctx.save();
       ctx.font=`${DLG_SIZE}px ${DLG_FONT}`;
       ctx.textAlign='left'; ctx.textBaseline='middle';
-      // Double-draw glow so choices survive dither
       ctx.shadowColor=hover?'rgba(160,210,255,0.95)':'rgba(100,160,220,0.55)';
       ctx.shadowBlur=hover?22:8;
       ctx.fillStyle=hover?'rgba(232,244,255,0.55)':'rgba(122,172,204,0.45)';
@@ -1405,7 +1370,7 @@ function drawDialogue(now) {
       ctx.fillStyle='#88b8d8';
       ctx.fillRect(tx+tw+3, ty+3, 4, DLG_SIZE-4);
     }
-    // "click to continue" — small downward triangle arrow with bob animation
+    // Continue arrow
     if (dlgReady) {
       const pulse  = 0.30 + 0.28 * Math.abs(Math.sin(now * 0.0016));
       const bob    = Math.sin(now * 0.0022) * 3.5;  // gentle vertical float
@@ -1430,7 +1395,7 @@ function drawDialogue(now) {
   ctx.restore();
 }
 
-// ─── RETURN TO CAR ARROW (Scene 8) ────────────────────────────────────────────
+// ─── RETURN  ───────────────────────────────────────────────────────
 let arrowAlpha  = 0;
 let arrowActive = false;
 
@@ -1440,7 +1405,6 @@ function drawReturnArrow(now) {
   const bob   = Math.sin(now * 0.0022) * 3.5;
   const pulse = 0.5 + 0.5*Math.abs(Math.sin(now*0.0014));
   const alpha = arrowAlpha * pulse;
-  // Right side, just above the shore band — matches end.html arrow position
   const cx   = W * 0.88;
   const cy   = H - SHORE_H * 0.82 + bob;
   const size = 28;
@@ -1465,7 +1429,6 @@ function arrowHitTest(mx,my) {
 }
 
 // ─── SCENE CALLBACKS ──────────────────────────────────────────────────────────
-// Called when a throw resolves
 function onThrowDone(skips) {
   throwCount++;
 
@@ -1512,7 +1475,7 @@ function onThrowDone(skips) {
 // Called when letter or photo is dismissed
 function onHeldItemDismissed() {
   if (HELD.type === 'letter') {
-    // Fade to black briefly before scene 5 — sky darkens, fireflies emerge
+    // Fade to black
     const fadeEl = document.getElementById('fade');
     fadeEl.style.transition = 'opacity 1.2s ease';
     fadeEl.style.opacity = '1';
@@ -1598,7 +1561,7 @@ function applyPost() {
   if (offscreen.width!==pw||offscreen.height!==ph) {
     offscreen.width=pw; offscreen.height=ph; postImageData=null;
   }
-  // Stamp overlay.png onto scene canvas so it gets dithered with everything else
+  
   if (overlayImg.naturalWidth > 0) {
     ctx.save();
     ctx.globalAlpha = 1;
@@ -1615,7 +1578,6 @@ function applyPost() {
   for (let y=0;y<ph;y++) {
     for (let x=0;x<pw;x++) {
       const i=(y*pw+x)*4;
-      // CRT barrel distortion (subtle — divisor 14)
       const nx=(x/pw)*2-1, ny=(y/ph)*2-1;
       const sxf=(nx+nx*(ny*ny)/14)*0.5+0.5;
       const syf=(ny+ny*(nx*nx)/14)*0.5+0.5;
@@ -1661,51 +1623,26 @@ function frame(now) {
   lastFrameT=now;
 
   ctx.clearRect(0,0,W,H);
-
-  // Background: sky, trees, cattails
   drawSky(now);
-
-  // Water layers first so bridge reflection sits on top
   drawWater(now);
-
-  // Bridge drawn AFTER water — its built-in reflection lands on the surface
   drawBridge();
-
-  // Bottom shore + shoes
   drawBottomShore(now);
-
-  // Rushes — front-right shore vegetation, drawn over shore
   drawRushes();
-
-  // Debris (twigs, leaves) — back-to-front with lily pads
+  
   for (const d of debris) { d.update(); d.draw(); }
-
-  // Lily pads — clump first (back), spread on top (front)
   for (const lp of lilyClump) { lp.update(dt); lp.draw(now); }
   for (const lp of lilyPads)  { lp.update(dt); lp.draw(now); }
 
-  // Fireflies
   drawFireflies(now);
-
-  // Ripples + impact flashes
   ripples=ripples.filter(r=>!r.done);
   for (const r of ripples) r.draw(now);
   flashes=flashes.filter(f=>!f.draw(now));
-
-  // Stone
   updateStone(now,dt);
   drawStone();
-
-  // Held item (letter or photo) — drawn before dialogue so text overlays clear
   updateHeldItem(dt);
   drawHeldItem(now);
-
-  // Dialogue
   drawDialogue(now);
-
-  // Return arrow (scene 8)
   drawReturnArrow(now);
-
   applyPost();
   requestAnimationFrame(frame);
 }
@@ -1713,8 +1650,15 @@ function frame(now) {
 // ─── INPUT ────────────────────────────────────────────────────────────────────
 let mouseX=0, mouseY=0;
 
+function getWrapOffset() {
+  const rect = document.getElementById('wrap').getBoundingClientRect();
+  return { x: rect.left, y: rect.top };
+}
+
 document.getElementById('clicker').addEventListener('mousemove', e=>{
-  mouseX=e.clientX; mouseY=e.clientY;
+  const off = getWrapOffset();
+  mouseX = e.clientX - off.x;
+  mouseY = e.clientY - off.y;
   if (choiceMode) {
     const rects=getChoiceRects(); choiceHover=-1;
     rects.forEach(({bx,by,bw,bh},i)=>{ if(mouseX>=bx&&mouseX<=bx+bw&&mouseY>=by&&mouseY<=by+bh) choiceHover=i; });
@@ -1727,20 +1671,21 @@ document.getElementById('clicker').addEventListener('mousemove', e=>{
 });
 
 document.getElementById('clicker').addEventListener('click', e=>{
-  // Unlock audio on first interaction
   if (!Audio.ctx) initAudio();
-  const mx=e.clientX, my=e.clientY;
+  const off = getWrapOffset();
+  const mx = e.clientX - off.x;
+  const my = e.clientY - off.y;
 
-  // Return to car arrow
+  // Return arrow
   if (arrowHitTest(mx,my)) { onS8LastThrow(); return; }
 
-  // Held item: click anywhere puts it away (once resting)
+  // Held item
   if (HELD.active && !HELD.animating && !HELD.dismissing) {
     if (HELD.type==='photo') { dismissHeldItem(); return; }
     if (HELD.type==='letter') { advanceLetter(); return; }
   }
 
-  // Choice selection
+  // Choices
   if (choiceMode) {
     const rects=getChoiceRects();
     rects.forEach(({bx,by,bw,bh},i)=>{ if(mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh) pickChoice(i); });
@@ -1764,19 +1709,16 @@ document.addEventListener('keydown', e=>{
 document.addEventListener('touchend', e=>{
   e.preventDefault();
   const t=e.changedTouches[0];
-  document.getElementById('clicker').dispatchEvent(new MouseEvent('click',{clientX:t.clientX,clientY:t.clientY}));
+  document.getElementById('clicker').dispatchEvent(new MouseEvent('click',{clientX:t.clientX, clientY:t.clientY}));
 },{passive:false});
 
 // ─── START ────────────────────────────────────────────────────────────────────
-resize();              // must come first — sets W, H, HORIZON_Y
+resize();              
 initLilyPads();
 initLilyClump();
 initDebris();
-// Fireflies initialized AFTER resize() so W/H/HORIZON_Y are valid
 fireflies = Array.from({length:28}, ()=>new Firefly());
 requestAnimationFrame(frame);
-
-// Fade in then begin scene 3
 const fadeEl=document.getElementById('fade');
 setTimeout(()=>{
   fadeEl.classList.add('clear');
