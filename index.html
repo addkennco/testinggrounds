@@ -310,25 +310,36 @@ function buildLetters() {
 // ─── RIPPLES ──────────────────────────────────────────────────────────────
 class TitleRipple {
   constructor(x, y) {
-    this.x = x; 
+    this.x = x;
     this.y = y;
     this.born = performance.now();
-    this.dur = 1800;
+    this.dur = 2200;
     this.done = false;
   }
   draw(now) {
     const age = now - this.born;
-    if (age < 0 || age > this.dur) { 
-      this.done = true; 
-      return; 
+    if (age < 0 || age > this.dur) {
+      this.done = true;
+      return;
     }
     const t = age / this.dur;
-    const radius = t * 80;
-    const alpha = (1 - t) * 0.5;
+    const ease = 1 - Math.pow(1 - t, 2);
+    const radius = ease * 110;
+    const alpha = Math.pow(1 - t, 1.4);
+    console.log('[ripple] draw age:', Math.round(age), 'radius:', Math.round(radius), 'alpha:', alpha.toFixed(3), 'x:', Math.round(this.x), 'y:', Math.round(this.y));
     ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = 'rgba(140,200,255,0.6)';
+    ctx.globalAlpha = alpha * 0.35;
+    ctx.strokeStyle = 'rgba(160,220,255,1.0)';
+    ctx.lineWidth = 4.5;
+    ctx.shadowColor = 'rgba(120,200,255,1.0)';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = alpha * 0.75;
+    ctx.strokeStyle = 'rgba(200,235,255,1.0)';
     ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
     ctx.stroke();
@@ -518,9 +529,12 @@ function drawScene(now) {
 
   // Bridge
   if (bridgeImg.complete) {
+    const bRatio = 1920 / 1430;
+    const bW = W;
+    const bH = bW / bRatio;
     ctx.save();
     ctx.globalAlpha = waterAlpha;
-    ctx.drawImage(bridgeImg, 0, HORIZON_Y - (W / 4) * 0.5, W, W / 4);
+    ctx.drawImage(bridgeImg, 0, HORIZON_Y - bH * 0.5, bW, bH);
     ctx.restore();
   }
 
@@ -598,6 +612,7 @@ function drawScene(now) {
           playTitleStoneSkip();
           ltr.ringSounded = true;
           ripples.push(new TitleRipple(ltr.restX, ltr.restY + 4));
+          console.log('[ripple] pushed, total:', ripples.length, 'rAF now:', now, 'perf.now:', performance.now());
         }
       }
     } else {
