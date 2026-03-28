@@ -28,10 +28,10 @@
   }
 
   canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-  #post {
-    pointer-events: none;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
+  #post { pointer-events: none; z-index: 3; }
+  #overlay-ui {
+    position: absolute; inset: 0; pointer-events: none; z-index: 4;
+    background: url('assets/overlay.png') center center / contain no-repeat;
   }
   #clicker { position: absolute; inset: 0; z-index: 5; cursor: default; }
   #fade {
@@ -48,9 +48,65 @@
 <div id="wrap">
   <canvas id="scene"></canvas>
   <canvas id="post"></canvas>
+  <div id="overlay-ui"></div>
   <div id="clicker"></div>
   <div id="fade"></div>
 </div>
+
+<script id="vshader" type="x-shader/x-vertex">#version 300 es
+  in vec2 position;
+  out vec2 vUv;
+  void main() {
+    vUv = position * 0.5 + 0.5;
+    gl_Position = vec4(position, 0.0, 1.0);
+  }
+</script>
+
+<script id="fshader" type="x-shader/x-fragment">#version 300 es
+  precision highp float;
+  uniform sampler2D uScene;
+  uniform vec2 uResolution;
+  in vec2 vUv;
+  out vec4 fragColor;
+
+  const float bayer[64] = float[](
+     0./64., 32./64.,  8./64., 40./64.,  2./64., 34./64., 10./64., 42./64.,
+    48./64., 16./64., 56./64., 24./64., 50./64., 18./64., 58./64., 26./64.,
+    12./64., 44./64.,  4./64., 36./64., 14./64., 46./64.,  6./64., 38./64.,
+    60./64., 28./64., 52./64., 20./64., 62./64., 30./64., 54./64., 22./64.,
+     3./64., 35./64., 11./64., 43./64.,  1./64., 33./64.,  9./64., 41./64.,
+    51./64., 19./64., 59./64., 27./64., 49./64., 17./64., 57./64., 25./64.,
+    15./64., 47./64.,  7./64., 39./64., 13./64., 45./64.,  5./64., 37./64.,
+    63./64., 31./64., 55./64., 23./64., 61./64., 29./64., 53./64., 21./64.
+  );
+
+  vec2 barrelDist(vec2 c, float amt) {
+    vec2 cc = c - 0.5;
+    float d = dot(cc, cc);
+    return c + cc * d * amt;
+  }
+
+  void main() {
+    vec2 uv = barrelDist(vUv, 0.07);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+      fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+      return;
+    }
+    float d = distance(uv, vec2(0.5)) * 1.4;
+    float off = d * 0.005;
+    float r = texture(uScene, uv + vec2(off, 0.0)).r;
+    float g = texture(uScene, uv).g;
+    float b = texture(uScene, uv - vec2(off, 0.0)).b;
+    vec3 col = vec3(r, g, b);
+    float pSize = 3.0;
+    ivec2 p = ivec2(gl_FragCoord.xy / pSize) % 8;
+    col += (bayer[p.y * 8 + p.x] - 0.5) * 0.02;
+    col = floor(col * 24.0 + 0.5) / 24.0;
+    col -= sin(vUv.y * uResolution.y * 1.5) * 0.03;
+    col *= mix(0.4, 1.0, smoothstep(0.85, 0.1, d));
+    fragColor = vec4(col, 1.0);
+  }
+</script>
 
 <script>
 // ─── AUDIO ────────────────────────────────────────────────────────────────────
@@ -77,18 +133,22 @@ async function startAudio() {
 const scene = document.getElementById('scene');
 const ctx   = scene.getContext('2d');
 const post  = document.getElementById('post');
-const pctx  = post.getContext('2d');
+const gl    = post.getContext('webgl2');
 
 let W, H, VP_X, VP_Y;
 let _stars = null;
+let program, texture, positionBuffer;
 
 function resize() {
   const wrap = document.getElementById('wrap');
   W = wrap.clientWidth; H = wrap.clientHeight;
-  scene.width = post.width  = W;
-  scene.height= post.height = H;
+  scene.width  = W;
+  scene.height = H;
+  post.width   = W;
+  post.height  = H;
   VP_X = W * 0.5;
   VP_Y = H * 0.40;
+  gl.viewport(0, 0, W, H);
   _stars = null;
 }
 window.addEventListener('resize', resize);
@@ -98,7 +158,6 @@ resize();
 const carImg      = new Image(); carImg.src      = 'assets/car.png';
 const airFreshImg = new Image(); airFreshImg.src = 'assets/airfreshener.png';
 const bridgeImg   = new Image(); bridgeImg.src   = 'assets/bridgefog.png';
-const overlayImg  = new Image(); overlayImg.src  = 'assets/overlay.png';
 
 let freshAngle = 0;
 let freshVel   = 0;
@@ -682,14 +741,10 @@ function drawRightGround() {
     rightPts.push({ x: roadEdgeX(d, 1), y: depthToY(d) });
   }
 
-  // Fill the region right of the road with near-black
   ctx.save();
   ctx.beginPath();
-  // Start at horizon on right edge of road
   ctx.moveTo(rightPts[0].x, rightPts[0].y);
-  // Follow road right edge downward
   for (const p of rightPts) ctx.lineTo(p.x, p.y);
-  // Close around the bottom-right corner
   ctx.lineTo(W, H);
   ctx.lineTo(W, VP_Y);
   ctx.closePath();
@@ -873,96 +928,43 @@ function endScene() {
   }, 800);
 }
 
-// ─── POST PROCESSING ──────────────────────────────────────────────────────────
-const offscreen = document.createElement('canvas');
-const octx      = offscreen.getContext('2d', { willReadFrequently: true });
+// ─── GL SETUP ─────────────────────────────────────────────────────────────────
+function initGL() {
+  const createS = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
+  };
+  program = gl.createProgram();
+  gl.attachShader(program, createS(gl.VERTEX_SHADER, document.getElementById('vshader').text));
+  gl.attachShader(program, createS(gl.FRAGMENT_SHADER, document.getElementById('fshader').text));
+  gl.linkProgram(program);
 
-const BAYER8 = [
-   0,32, 8,40, 2,34,10,42,
-  48,16,56,24,50,18,58,26,
-  12,44, 4,36,14,46, 6,38,
-  60,28,52,20,62,30,54,22,
-   3,35,11,43, 1,33, 9,41,
-  51,19,59,27,49,17,57,25,
-  15,47, 7,39,13,45, 5,37,
-  63,31,55,23,61,29,53,21,
-].map(v => v / 64);
+  positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
 
-const PIX    = 3;
-const CSTEPS = 24;
-const DSTR   = 0.018;
-const ABER   = 0.006;
+  texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+}
 
-let postImageData = null;
-
+// ─── POST PROCESSING (SHADER) ─────────────────────────────────────────────────
 function applyPost() {
-  const pw = Math.ceil(W / PIX);
-  const ph = Math.ceil(H / PIX);
-  if (offscreen.width !== pw || offscreen.height !== ph) {
-    offscreen.width = pw; offscreen.height = ph; postImageData = null;
-  }
-
-  if (overlayImg.naturalWidth > 0) {
-    ctx.save();
-    ctx.globalAlpha = 1;
-    ctx.drawImage(overlayImg, 0, 0, W, H);
-    ctx.restore();
-  }
-
-  octx.clearRect(0, 0, pw, ph);
-  octx.drawImage(scene, 0, 0, pw, ph);
-
-  const src = octx.getImageData(0, 0, pw, ph);
-  const sd  = src.data;
-
-  if (!postImageData || postImageData.width !== pw || postImageData.height !== ph)
-    postImageData = octx.createImageData(pw, ph);
-  const dd = postImageData.data;
-  const cx = pw / 2, cy = ph / 2;
-
-  for (let y = 0; y < ph; y++) {
-    for (let x = 0; x < pw; x++) {
-      const i = (y * pw + x) * 4;
-      const nx = (x / pw) * 2 - 1, ny = (y / ph) * 2 - 1;
-      const sxf = (nx + nx * (ny * ny) / 14) * 0.5 + 0.5;
-      const syf = (ny + ny * (nx * nx) / 14) * 0.5 + 0.5;
-      if (sxf < 0 || sxf > 1 || syf < 0 || syf > 1) { dd[i] = 0; dd[i+1] = 0; dd[i+2] = 0; dd[i+3] = 255; continue; }
-      const sx = Math.round(sxf * pw), sy = Math.round(syf * ph);
-      const si = (sy * pw + sx) * 4;
-      const dx = (sx - cx) / pw, dy = (sy - cy) / ph;
-      const dist  = Math.sqrt(dx*dx + dy*dy) * 1.42;
-      const offPx = Math.round(dist * ABER * pw);
-      const ir = (sy * pw + Math.min(pw - 1, sx + offPx)) * 4;
-      const ib = (sy * pw + Math.max(0,       sx - offPx)) * 4;
-      let r = sd[ir], g = sd[si + 1], b = sd[ib + 2];
-      const bv   = BAYER8[(y % 8) * 8 + (x % 8)];
-      const doff = (bv - 0.5) * DSTR * 255;
-      r = Math.min(255, Math.max(0, Math.round((r + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
-      g = Math.min(255, Math.max(0, Math.round((g + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
-      b = Math.min(255, Math.max(0, Math.round((b + doff) / (255 / CSTEPS)) * (255 / CSTEPS)));
-      dd[i] = r; dd[i+1] = g; dd[i+2] = b; dd[i+3] = sd[si+3];
-    }
-  }
-
-  octx.putImageData(postImageData, 0, 0);
-
-  pctx.clearRect(0, 0, W, H);
-  pctx.save();
-  pctx.imageSmoothingEnabled = false;
-  pctx.drawImage(offscreen, 0, 0, W, H);
-  pctx.restore();
-
-  pctx.save();
-  pctx.globalAlpha = 0.10;
-  pctx.fillStyle   = '#000';
-  for (let y = 0; y < H; y += PIX) pctx.fillRect(0, y + PIX - 1, W, 1);
-  pctx.restore();
-
-  const vig = pctx.createRadialGradient(W*0.5, H*0.65, H*0.05, W*0.5, H*0.65, H*0.85);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.58)');
-  pctx.fillStyle = vig;
-  pctx.fillRect(0, 0, W, H);
+  gl.useProgram(program);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, scene);
+  gl.uniform1i(gl.getUniformLocation(program, "uScene"), 0);
+  gl.uniform2f(gl.getUniformLocation(program, "uResolution"), W, H);
+  const posLoc = gl.getAttribLocation(program, "position");
+  gl.enableVertexAttribArray(posLoc);
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
 // ─── LOOP ─────────────────────────────────────────────────────────────────────
@@ -1011,6 +1013,8 @@ document.addEventListener('keydown', e => { if (e.key===' '||e.key==='Enter') ad
 document.addEventListener('touchend', e => { e.preventDefault(); advanceDlg(); }, {passive:false});
 
 // ─── START ────────────────────────────────────────────────────────────────────
+initGL();
+resize();
 requestAnimationFrame(frame);
 const fadeEl = document.getElementById('fade');
 setTimeout(() => {
