@@ -672,6 +672,37 @@ function drawTrees() {
   ctx.restore();
 }
 
+
+// ─── RIGHT GROUND (dark fill right of road) ───────────────────────────────────
+function drawRightGround() {
+  const STEPS = 40;
+  const rightPts = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const d = i / STEPS;
+    rightPts.push({ x: roadEdgeX(d, 1), y: depthToY(d) });
+  }
+
+  // Fill the region right of the road with near-black
+  ctx.save();
+  ctx.beginPath();
+  // Start at horizon on right edge of road
+  ctx.moveTo(rightPts[0].x, rightPts[0].y);
+  // Follow road right edge downward
+  for (const p of rightPts) ctx.lineTo(p.x, p.y);
+  // Close around the bottom-right corner
+  ctx.lineTo(W, H);
+  ctx.lineTo(W, VP_Y);
+  ctx.closePath();
+
+  const g = ctx.createLinearGradient(0, VP_Y, 0, H);
+  g.addColorStop(0,   'rgba(2,1,6,0.97)');
+  g.addColorStop(0.3, 'rgba(3,1,8,0.99)');
+  g.addColorStop(1,   'rgba(2,1,6,1.00)');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.restore();
+}
+
 // ─── DIALOGUE ─────────────────────────────────────────────────────────────────
 const ROAD_LINES = [
   { text: "I didn't plan on coming out this late.", italic: false },
@@ -948,6 +979,7 @@ function frame(now) {
   drawFog(now);
   drawTrees();
   drawRoad();
+  drawRightGround();
   drawReflectors();
   drawHeadlightCones();
 
