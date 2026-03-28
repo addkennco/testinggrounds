@@ -309,10 +309,10 @@ function buildLetters() {
 
 // ─── RIPPLES ──────────────────────────────────────────────────────────────
 class TitleRipple {
-  constructor(x, y) {
+  constructor(x, y, now) {
     this.x = x;
     this.y = y;
-    this.born = performance.now();
+    this.born = now;  // use rAF timestamp so tab-hide doesn't break age calc
     this.dur = 2200;
     this.done = false;
   }
@@ -611,7 +611,7 @@ function drawScene(now) {
         if (!ltr.ringSounded && ltr.ch !== ' ') {
           playTitleStoneSkip();
           ltr.ringSounded = true;
-          ripples.push(new TitleRipple(ltr.restX, ltr.restY + 4));
+          ripples.push(new TitleRipple(ltr.restX, ltr.restY + 4, now));
           console.log('[ripple] pushed, total:', ripples.length, 'rAF now:', now, 'perf.now:', performance.now());
         }
       }
