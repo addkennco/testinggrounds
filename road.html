@@ -83,7 +83,7 @@
   vec2 barrelDist(vec2 c, float amt) {
     vec2 cc = c - 0.5;
     float d = dot(cc, cc);
-    return c + cc * d * amt;
+    return c - cc * d * amt;
   }
 
   void main() {
