@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sketch-an-Etch</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    overflow: hidden;
+    background: #0e0c0a;
+    font-family: 'Georgia', serif;
+  }
+
+  /* Full-page background plate — rendered in Blender with the Etch A Sketch hidden, blur baked in */
+  #bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background: #0e0c0a url('images/sketchanetchbkg.png') center / cover no-repeat;
+  }
+
+  canvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+    touch-action: none;
+  }
+
+  #hint {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 2;
+    max-width: 90vw;
+    text-align: center;
+    color: #e8d9b8;
+    font-size: 13px;
+    background: rgba(14, 12, 10, 0.55);
+    padding: 6px 14px;
+    border-radius: 3px;
+    pointer-events: none;
+    transition: opacity 0.8s ease;
+  }
+  #hint.gone { opacity: 0; }
+</style>
+</head>
+<body>
+
+<div id="bg"></div>
+<canvas id="c"></canvas>
+<div id="hint">Drag the knobs to draw. Arrow keys work too. Press C to shake it clean.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- GLTFLoader global build, pinned to the same three version as above -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+(function() {
+
+// ── CONFIG ────────────────────────────────────
+const MODEL_URL     = 'models/sketchanetch.glb';
+// Straight from the GLB's Blender Camera node, so the model lands where the plate expects it
+const CAM_POS       = new THREE.Vector3(-0.0111, 0.2426, 6.9258);
+const CAM_FOV       = 22.9;                 // vertical, degrees
+const CAM_ASPECT    = 16 / 9;               // aspect the plate was rendered at
+const MAX_ORBIT     = THREE.MathUtils.degToRad(10);
+const TURNS         = 3;                    // knob turns, edge to edge
+const SCREEN_W      = 1024;                 // matches the Plane's 1.546 x 1.146 aspect
+const SCREEN_H      = 759;
+const FLIP_SCREEN_Y = false;                // flip if the drawing lands upside-down
+const GLASS_OPACITY = 0.12;                 // the export dropped the glass transmission, so it's rebuilt here
+const REDUCED       = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const clamp01 = v => Math.max(0, Math.min(1, v));
+const hint    = document.getElementById('hint');
+const hideHint = () => hint.classList.add('gone');
+
+// ── RENDERER + CAMERA ─────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // kinder to lower-end hardware
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(CAM_FOV, innerWidth / innerHeight, 0.1, 100);
+const target = new THREE.Vector3(CAM_POS.x, CAM_POS.y, 0);
+const radius = CAM_POS.z;
+let orbitX = 0, orbitY = 0, goalX = 0, goalY = 0;
+
+// The plate is background-size: cover. When the window is wider than 16:9 the plate scales by
+// width and loses vertical extent, so the FOV has to tighten by the same ratio to stay registered.
+function fitCamera() {
+  const a = innerWidth / innerHeight;
+  const t = Math.tan(THREE.MathUtils.degToRad(CAM_FOV / 2)) * (a > CAM_ASPECT ? CAM_ASPECT / a : 1);
+  camera.aspect = a;
+  camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(t));
+  camera.updateProjectionMatrix();
+}
+fitCamera();
+
+// ── LIGHTING ──────────────────────────────────
+// Warm lamp from upper left. Tune by eye against the plate.
+const key  = new THREE.DirectionalLight(0xffd9a0, 2.2);
+key.position.set(-3, 3, 4);
+const fill = new THREE.HemisphereLight(0x8a7a66, 0x1a1510, 0.9);
+scene.add(key, fill);
+
+// ── SCREEN (powder + stylus line) ─────────────
+// Powder is built once; clearing just repaints it. Drawing on a canvas texture keeps the cost
+// flat no matter how long the line gets.
+const powder = document.createElement('canvas');
+powder.width = SCREEN_W; powder.height = SCREEN_H;
+(function() {
+  const p = powder.getContext('2d');
+  p.fillStyle = '#b9b9b4';
+  p.fillRect(0, 0, SCREEN_W, SCREEN_H);
+  for (let i = 0; i < 14000; i++) {
+    const g = 150 + (Math.random() * 80 | 0);
+    p.fillStyle = `rgba(${g},${g},${g - 4},0.35)`;
+    p.fillRect(Math.random() * SCREEN_W, Math.random() * SCREEN_H, 1.5, 1.5);
+  }
+})();
+
+const screenCanvas = document.createElement('canvas');
+screenCanvas.width = SCREEN_W; screenCanvas.height = SCREEN_H;
+const sctx = screenCanvas.getContext('2d');
+sctx.drawImage(powder, 0, 0);
+sctx.lineCap = 'round'; sctx.lineJoin = 'round';
+sctx.lineWidth = 3; sctx.strokeStyle = '#2b2b2b';
+
+const screenTex = new THREE.CanvasTexture(screenCanvas);
+screenTex.flipY = FLIP_SCREEN_Y;
+screenTex.encoding = THREE.sRGBEncoding;
+let texDirty = false;
+
+// Stylus position, 0..1 on each axis. Like the real toy it survives a shake.
+const pos = { x: 0.5, y: 0.5 };
+let lastX = pos.x * SCREEN_W, lastY = (1 - pos.y) * SCREEN_H;
+
+function stroke() {
+  const x = pos.x * SCREEN_W, y = (1 - pos.y) * SCREEN_H;
+  if (x === lastX && y === lastY) return;
+  sctx.beginPath(); sctx.moveTo(lastX, lastY); sctx.lineTo(x, y); sctx.stroke();
+  lastX = x; lastY = y;
+  texDirty = true;
+}
+
+// ── MODEL ─────────────────────────────────────
+const rig = new THREE.Group();   // shake the toy, not the room
+scene.add(rig);
+let leftKnob = null, rightKnob = null;
+
+new THREE.GLTFLoader().load(MODEL_URL, gltf => {
+  const root = gltf.scene;     // no recentering: it has to stay registered to the plate
+  rig.add(root);
+
+  leftKnob  = root.getObjectByName('LeftKnob');
+  rightKnob = root.getObjectByName('RightKnob');
+  const plane = root.getObjectByName('Plane');
+  if (plane) plane.material = new THREE.MeshStandardMaterial({ map: screenTex, roughness: 0.55, metalness: 0 });
+
+  root.traverse(o => {
+    if (o.isMesh && o.material && o.material.name === 'Glass') {
+      o.material.transparent = true;
+      o.material.opacity = GLASS_OPACITY;
+      o.material.depthWrite = false;
+    }
+  });
+
+  if (!leftKnob || !rightKnob || !plane) {
+    console.warn('Missing nodes. Found:', root.children.map(c => c.name));
+    hint.textContent = 'Could not find the knobs or screen in the model.';
+  }
+  invalidate();
+}, undefined, err => {
+  console.error('Model failed to load:', err);
+  hint.textContent = 'Could not load ' + MODEL_URL + '. Serve the page over http, not file://.';
+  hint.classList.remove('gone');
+});
+
+// ── KNOBS ─────────────────────────────────────
+// dTheta is clockwise-on-screen radians. Knob art spins on its local Z (the cylinders lie along Z).
+function turn(knob, dTheta) {
+  knob.rotation.z -= dTheta;
+  const d = dTheta / (2 * Math.PI * TURNS);
+  if (knob === rightKnob) pos.x = clamp01(pos.x + d);   // right knob: horizontal
+  else                    pos.y = clamp01(pos.y + d);   // left knob: vertical
+  stroke();
+  invalidate();
+}
+
+// ── POINTER ───────────────────────────────────
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), v3 = new THREE.Vector3();
+let drag = null, hoverT = 0;
+
+function pick(e) {
+  ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObjects([leftKnob, rightKnob], true)[0];
+  if (!hit) return null;
+  let o = hit.object;
+  while (o && o !== leftKnob && o !== rightKnob) o = o.parent;
+  return o;
+}
+
+canvas.addEventListener('pointerdown', e => {
+  if (!leftKnob || !rightKnob) return;
+  canvas.setPointerCapture(e.pointerId);
+  const knob = pick(e);
+  if (knob) {
+    // Turn by angle around the knob's on-screen center, so it feels like gripping it
+    const c = knob.getWorldPosition(v3).project(camera);
+    const cx = (c.x + 1) / 2 * innerWidth, cy = (1 - c.y) / 2 * innerHeight;
+    drag = { knob, cx, cy, ang: Math.atan2(e.clientY - cy, e.clientX - cx) };
+    canvas.style.cursor = 'grabbing';
+  } else {
+    drag = { x: e.clientX, y: e.clientY };
+  }
+  hideHint();
+});
+
+canvas.addEventListener('pointermove', e => {
+  if (!drag) {
+    const now = performance.now();
+    if (leftKnob && now - hoverT > 60) {
+      hoverT = now;
+      canvas.style.cursor = pick(e) ? 'grab' : 'default';
+    }
+    return;
+  }
+  if (drag.knob) {
+    const a = Math.atan2(e.clientY - drag.cy, e.clientX - drag.cx);
+    let d = a - drag.ang;
+    if (d >  Math.PI) d -= 2 * Math.PI;
+    if (d < -Math.PI) d += 2 * Math.PI;
+    drag.ang = a;
+    turn(drag.knob, d);
+  } else {
+    // Drag the room to look around, clamped so the plate stays believable
+    goalY = Math.max(-MAX_ORBIT, Math.min(MAX_ORBIT, goalY - (e.clientX - drag.x) * 0.003));
+    goalX = Math.max(-MAX_ORBIT, Math.min(MAX_ORBIT, goalX - (e.clientY - drag.y) * 0.003));
+    drag.x = e.clientX; drag.y = e.clientY;
+    invalidate();
+  }
+});
+
+const endDrag = () => { drag = null; canvas.style.cursor = 'default'; };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+
+// ── KEYBOARD ──────────────────────────────────
+// Right/left arrows: right knob (horizontal). Up/down arrows: left knob (vertical). C: shake clean.
+window.addEventListener('keydown', e => {
+  if (!leftKnob || !rightKnob) return;
+  const s = 0.12;
+  switch (e.key) {
+    case 'ArrowRight': turn(rightKnob,  s); break;
+    case 'ArrowLeft':  turn(rightKnob, -s); break;
+    case 'ArrowUp':    turn(leftKnob,   s); break;
+    case 'ArrowDown':  turn(leftKnob,  -s); break;
+    case 'c': case 'C': clearScreen(); hideHint(); return;
+    default: return;
+  }
+  e.preventDefault();
+  hideHint();
+});
+
+// ── SHAKE / CLEAR ─────────────────────────────
+const SHAKE_MS = 600;
+let shakeStart = -1e9;
+
+function clearScreen() {
+  shakeStart = performance.now();
+  setTimeout(() => {
+    sctx.drawImage(powder, 0, 0);
+    texDirty = true;
+    invalidate();
+  }, REDUCED ? 0 : 200);
+  invalidate();
+}
+
+// ── RENDER (on demand: nothing moves, nothing draws) ──
+let raf = 0;
+function invalidate() { if (!raf) raf = requestAnimationFrame(frame); }
+
+function frame(now) {
+  raf = 0;
+  let again = false;
+
+  // Ease the orbit toward its goal
+  const dx = goalX - orbitX, dy = goalY - orbitY;
+  if (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4) {
+    orbitX += dx * 0.18; orbitY += dy * 0.18; again = true;
+  }
+
+  // Shake with decaying intensity
+  const t = now - shakeStart;
+  if (!REDUCED && t < SHAKE_MS) {
+    const f = 1 - t / SHAKE_MS;
+    rig.position.set(Math.sin(t * 0.05) * 0.08 * f, Math.cos(t * 0.06) * 0.06 * f, 0);
+    rig.rotation.z = Math.sin(t * 0.07) * 0.03 * f;
+    again = true;
+  } else if (rig.position.lengthSq() > 0) {
+    rig.position.set(0, 0, 0);
+    rig.rotation.z = 0;
+  }
+
+  if (texDirty) { screenTex.needsUpdate = true; texDirty = false; }
+
+  // At orbit 0 this is exactly the Blender camera
+  camera.position.set(
+    target.x + Math.sin(orbitY) * radius,
+    target.y + Math.sin(orbitX) * radius,
+    Math.cos(orbitY) * Math.cos(orbitX) * radius
+  );
+  camera.lookAt(target);
+  renderer.render(scene, camera);
+
+  if (again) invalidate();
+}
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  fitCamera();
+  invalidate();
+});
+
+invalidate();
+
+})();
+</script>
+</body>
+</html>
