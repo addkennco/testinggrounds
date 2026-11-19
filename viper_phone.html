@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Viper</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden}
+  body{background:radial-gradient(ellipse at 50% 40%,#2c1e12 0%,#140e09 62%,#080605 100%);
+       font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;color:#d9c7a8;-webkit-user-select:none;user-select:none}
+  body.transparent{background:transparent}
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none}
+  #hint,#status{position:fixed;left:0;right:0;text-align:center;pointer-events:none;letter-spacing:.03em}
+  #hint{bottom:calc(14px + env(safe-area-inset-bottom,0px));color:rgba(217,199,168,.6);transition:opacity .6s}
+  #status{top:46%;color:rgba(217,199,168,.75);padding:0 24px}
+  kbd{background:rgba(255,255,255,.08);border-radius:4px;padding:0 5px;font-size:11px}
+  @media (prefers-reduced-motion:reduce){#hint{transition:none}}
+</style>
+</head>
+<body>
+<canvas id="gl" tabindex="0" aria-label="Flip phone with a snake game. Press Space or click to open it, then steer with the arrow keys or WASD."></canvas>
+<div id="hint"></div>
+<div id="status">Loading phone…</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+'use strict';
+/* =====================================================================
+   VIPER PHONE  -  three.js flip phone that plays Viper on its screen
+   Tweak things with the CONFIG block, or with URL params, e.g.
+     viper_phone.html?open=150&rows=48&autoopen&lighting=overhead&flipv
+   ===================================================================== */
+const Q = new URLSearchParams(location.search);
+const num = (k, d) => (Q.has(k) && isFinite(+Q.get(k))) ? +Q.get(k) : d;
+
+const CONFIG = {
+  glb: Q.get('glb') || 'FlipPhone.glb',
+  openAngleDeg: num('open', 141),      // how far the lid swings open (closed = 0)
+  openMs: 800, closeMs: 600,
+  autoOpen: Q.has('autoopen'),         // open by itself after load (for the hub's zoom-in)
+  lcd: { cols: 84, rows: num('rows', 74), pitch: 10, gap: 1, bezel: 10 },
+  //   rows 74 = fills the near-square screen. rows 48 = classic Nokia, with bars above/below.
+  screenInset: { w: 0.92, h: 0.95 },   // how much of the screen mesh the display covers
+  lift: 0.0006,                        // display sits this far in front of the screen mesh
+  flipU: Q.has('flipu'), flipV: Q.has('flipv'),   // if the image ever shows mirrored/upside down
+  outerScreen: Q.get('outer') !== '0', // small clock screen on the closed lid
+  cameraDir: [0, 0.74, 0.67],          // direction from the phone toward the camera
+  fov: 28, pad: 1.12,
+  zoomPad: 1.3,                        // how snugly the camera frames the screen while you play
+  parallax: num('parallax', 0.05),     // gentle camera sway toward the pointer (0 = off)
+  escCloses: true,                     // Esc closes the lid and tells the hub to exit
+  lighting: Q.get('lighting') || 'lamp',   // lamp | overhead | off
+  keyTravel: 0.0028, rockerTilt: 0.12,
+};
+if (Q.has('transparent')) document.body.classList.add('transparent');
+
+/* ---------------------------------------------------------------------
+   LCD BUFFER  (shared by the game screen and the little outer clock)
+   --------------------------------------------------------------------- */
+const COLORS = { bg: '#8a9a6a', on: '#1a2a0a', off: '#7a8a5a', bezel: '#b0be88' };
+const FONT = {
+  '0':['###','#.#','#.#','#.#','###'], '1':['.#.','.#.','.#.','.#.','.#.'],
+  '2':['###','..#','###','#..','###'], '3':['###','..#','###','..#','###'],
+  '4':['#.#','#.#','###','..#','..#'], '5':['###','#..','###','..#','###'],
+  '6':['###','#..','###','#.#','###'], '7':['###','..#','..#','..#','..#'],
+  '8':['###','#.#','###','#.#','###'], '9':['###','#.#','###','..#','###'],
+  A:['.#.','#.#','###','#.#','#.#'], C:['###','#..','#..','#..','###'],
+  E:['###','#..','##.','#..','###'], G:['###','#..','#.#','#.#','###'],
+  I:['###','.#.','.#.','.#.','###'], K:['#.#','#.#','##.','#.#','#.#'],
+  M:['#...#','##.##','#.#.#','#...#','#...#'],
+  N:['#..#','##.#','#.##','#..#','#..#'], O:['###','#.#','#.#','#.#','###'],
+  P:['###','#.#','###','#..','#..'], R:['##.','#.#','##.','#.#','#.#'],
+  S:['###','#..','###','..#','###'], T:['###','.#.','.#.','.#.','.#.'],
+  U:['#.#','#.#','#.#','#.#','###'], V:['#.#','#.#','#.#','#.#','.#.'], ' ':['..','..','..','..','..']
+};
+
+function makeLcd(canvas, cfg, colors) {
+  const { cols, rows, pitch, gap, bezel } = cfg;
+  const ctx = canvas.getContext('2d');
+  const TW = cols * pitch + bezel * 2, TH = rows * pitch + bezel * 2;
+  canvas.width = TW; canvas.height = TH;
+  const buf = new Uint8Array(cols * rows);
+  const L = { canvas, buf, cols, rows, TW, TH, onFrame: null };
+  L.clear = () => buf.fill(0);
+  L.set = (x, y, v = 1) => { if (x >= 0 && y >= 0 && x < cols && y < rows) buf[y * cols + x] = v; };
+  L.rect = (x, y, w, h, v = 1) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) L.set(x + i, y + j, v); };
+  L.frame = (x, y, w, h, v = 1) => {
+    for (let i = 0; i < w; i++) { L.set(x + i, y, v); L.set(x + i, y + h - 1, v); }
+    for (let j = 0; j < h; j++) { L.set(x, y + j, v); L.set(x + w - 1, y + j, v); }
+  };
+  L.textWidth = (str, s = 1) => {
+    let w = 0; for (const ch of str) { const g = FONT[ch]; if (g) w += (g[0].length + 1) * s; } return w - s;
+  };
+  L.drawText = (str, x, y, s = 1, v = 1) => {
+    for (const ch of str) {
+      const g = FONT[ch]; if (!g) continue;
+      for (let r = 0; r < 5; r++) for (let c = 0; c < g[r].length; c++)
+        if (g[r][c] === '#') L.rect(x + c * s, y + r * s, s, s, v);
+      x += (g[0].length + 1) * s;
+    }
+  };
+  L.drawCentered = (str, y, s = 1, v = 1, cx = cols / 2) =>
+    L.drawText(str, Math.round(cx - L.textWidth(str, s) / 2), y, s, v);
+  L.blit = () => {
+    const fill = pitch - gap, lead = gap >> 1;
+    ctx.fillStyle = colors.bezel; ctx.fillRect(0, 0, TW, TH);
+    ctx.fillStyle = colors.bg;    ctx.fillRect(bezel, bezel, TW - bezel * 2, TH - bezel * 2);
+    for (let r = 0; r < rows; r++) {
+      const y = bezel + r * pitch + lead;
+      for (let c = 0; c < cols; c++) {
+        ctx.fillStyle = buf[r * cols + c] ? colors.on : colors.off;
+        ctx.fillRect(bezel + c * pitch + lead, y, fill, fill);
+      }
+    }
+    if (L.onFrame) L.onFrame();
+  };
+  return L;
+}
+
+/* ---------------------------------------------------------------------
+   VIPER  (your game, unchanged in spirit; the play field just got taller)
+   --------------------------------------------------------------------- */
+// <<VIPER-START>>
+const TITLE_ART_TEXT = `
+private static readonly string[] StartArt = new string[]
+{
+    ".....................................##.............................................",
+    "....................................####...##..##...................................",
+    "....................................#####.###.###..............#######..............",
+    ".....................####...........#####.###.##.......######.#########.............",
+    ".................##.#######..........####.###....####.########.##....##.............",
+    "................#####.....##..........###.##.#########.#######.###..###.............",
+    "...............##..#..###..##.........###.##.####...###.#...##.#######..............",
+    ".........#######..#..##..#..##.........##.#####.##..###.######.##########...........",
+    "........#######.....#.###....##........####.###.######.###.....###..#######.........",
+    ".......##..........#####......##.......####.###.#####.####..##.###.....####.........",
+    ".......##.................###..##.......###.####.##...#######..###......###.........",
+    "........##...............#......#.......###......##...######...##........#..........",
+    ".........####...................##......###......###............#...................",
+    ".........#.#.###############....##.......#........###...............................",
+    ".........#.#...#.#..#########...##.......#.........##...............................",
+    "..........##...#.#..#######....#.#...........##.....................................",
+    "................##.#######.....#.#..........######..................................",
+    "..............#....######.....#..#.........#...#######..............................",
+    ".............#.#.#######......#..#........#.###..#.######...........................",
+    ".............#.####.##...##..#...#.......#.#####..#....####.........................",
+    ".............#####..##.####..#..##......#.#######.#.#.....####......................",
+    ".............#.######.##.#...#..##......#########.#.#####..######...................",
+    ".............#..###..##.##....#.#......#.########........#####.#####................",
+    "..............####.###..#.....###....#############.#.###......#.#####...............",
+    "................###....##.....##....####.#..#..###.#.#..####.......##...............",
+    "................##....##....###...####...#...#..##.#.#......#######.##..............",
+    "...............##....##..###.#...###..###........#...###............##..............",
+    "..............###...##..#...##..###......#########.#....###########..#..............",
+    ".............#.#...##...#..##...#..#..############.#.................##.............",
+    "...............#...##...#.##...##..#.#############.#.##############..##.............",
+    "..................##....###....##..#.#############.#.#...............##.............",
+    "..................##....##......#.#....##.#...####...##############..##.............",
+    "..................#.....##......###.....##.###..##...................##.............",
+    ".................##.....##......#######...#......#.#.#############...##.............",
+    ".................##.....##.....###.##..#...#.....#.#.#...............##.............",
+    ".................##.....##.....##...##.#....#....#.#.#..............##..............",
+    ".................##....#.##....###...###....#...#..#.#############..##..............",
+    ".................###...#..##....##...###....#####.#.................##..............",
+    ".................###....##.############.....#####.#..#############.##...............",
+    "..................###.......##.###..##......####..#..#.............##...............",
+    "...................###...........###.......####...#..##########...##................",
+    "....................####..................####..##...........######.................",
+    "......................#####.............##########################..................",
+    ".........................###############............................................",
+    ".....................##..##..###.###.###....###.###..#..##..###.....................",
+    ".....................#.#.#.#.##..##..##.....##...#..#.#.#.#..#......................",
+    ".....................###.##..#.....#...#......#..#..###.##...#......................",
+    ".....................#...#.#.###.###.###....###..#..#.#.#.#..#......................",
+};
+`;
+const TITLE_BLINK_ROWS = 4;
+
+function createViper(canvas, lcdCfg, colors) {
+  const LCD = lcdCfg;
+  const GAME = { cell: 3, px: 1, py: 10, pw: 81, ph: lcdCfg.rows - 12, tickMs: 180, startLen: 5, texture: 'zband' };
+  const L = makeLcd(canvas, LCD, colors);
+  const { clear, set, rect, frame, textWidth, drawText, drawCentered, blit } = L;
+
+  const GC = Math.floor(GAME.pw / GAME.cell), GR = Math.floor(GAME.ph / GAME.cell);
+  const OX = GAME.px + ((GAME.pw - GC * GAME.cell) >> 1);
+  const OY = GAME.py + ((GAME.ph - GR * GAME.cell) >> 1);
+
+  const game = {
+    body: [], dir: { x: 1, y: 0 }, queue: [], food: { x: 0, y: 0 }, score: 0, over: false, won: false,
+    reset() {
+      this.body = [];
+      const hx = Math.floor(GC / 2), hy = Math.floor(GR / 2);
+      for (let i = 0; i < GAME.startLen; i++) this.body.push({ x: hx - i, y: hy });
+      this.dir = { x: 1, y: 0 }; this.queue = [];
+      this.score = 0; this.over = false; this.won = false;
+      this.placeFood();
+    },
+    occupied(x, y) { return this.body.some(s => s.x === x && s.y === y); },
+    placeFood() {
+      const free = [];
+      for (let y = 0; y < GR; y++) for (let x = 0; x < GC; x++) if (!this.occupied(x, y)) free.push({ x, y });
+      if (!free.length) { this.over = true; this.won = true; return; }
+      this.food = free[Math.floor(Math.random() * free.length)];
+    },
+    setDir(x, y) {
+      const last = this.queue.length ? this.queue[this.queue.length - 1] : this.dir;
+      if ((x === last.x && y === last.y) || (x === -last.x && y === -last.y)) return;
+      if (this.queue.length < 2) this.queue.push({ x, y });
+    },
+    tick() {
+      if (this.over) return;
+      if (this.queue.length) this.dir = this.queue.shift();
+      const h = this.body[0];
+      const nx = (h.x + this.dir.x + GC) % GC, ny = (h.y + this.dir.y + GR) % GR;
+      if (this.occupied(nx, ny)) { this.over = true; return; }
+      this.body.unshift({ x: nx, y: ny });
+      if (nx === this.food.x && ny === this.food.y) { this.score++; this.placeFood(); }
+      else this.body.pop();
+    }
+  };
+
+  const ART = (() => { const rows = [...TITLE_ART_TEXT.matchAll(/"([#.]+)"/g)].map(m => m[1]); return rows.length ? rows : null; })();
+  const ART_OY = ART ? Math.max(0, (LCD.rows - ART.length) >> 1) : Math.max(0, (LCD.rows - 48) >> 1);
+
+  function drawTitle(blinkOn) {
+    clear();
+    if (ART) {
+      const blinkFrom = ART.length - TITLE_BLINK_ROWS;
+      ART.forEach((row, r) => {
+        if (r >= blinkFrom && !blinkOn) return;
+        for (let c = 0; c < row.length; c++) if (row[c] === '#') set(c, r + ART_OY);
+      });
+    } else {
+      drawCentered('SNAKE', 7 + ART_OY, 2);
+      for (let i = 0; i < 21; i++) {
+        const x = 8 + Math.round(i * 3.4), y = 22 + ART_OY + Math.round(Math.sin(i * 0.75) * 4);
+        rect(x, y, 3, 3);
+      }
+    }
+  }
+  function drawScore() { drawText(String(Math.min(game.score, 999)).padStart(3, '0'), 2, 2); }
+  function drawBoard() {
+    frame(OX - 1, OY - 1, GC * GAME.cell + 2, GR * GAME.cell + 2);
+    const cell = GAME.cell;
+    const fx = OX + game.food.x * cell, fy = OY + game.food.y * cell;
+    if (cell === 3) { set(fx + 1, fy); set(fx, fy + 1); set(fx + 2, fy + 1); set(fx + 1, fy + 2); }
+    else rect(fx, fy, cell, cell);
+    drawSnake();
+  }
+  function stepDir(a, b) {
+    let dx = b.x - a.x, dy = b.y - a.y;
+    if (dx > 1) dx = -1; else if (dx < -1) dx = 1;
+    if (dy > 1) dy = -1; else if (dy < -1) dy = 1;
+    return { dx, dy };
+  }
+  const ZHALF = { L: [[0, 0], [1, 0]], R: [[1, 1], [2, 1]], U: [[0, 0], [0, 1]], D: [[1, 1], [1, 2]] };
+  function drawSnake() {
+    const cell = GAME.cell, body = game.body;
+    body.forEach((s, i) => {
+      const has = { L: false, R: false, U: false, D: false };
+      const links = [];
+      if (i > 0) links.push(stepDir(s, body[i - 1]));
+      if (i < body.length - 1) links.push(stepDir(s, body[i + 1]));
+      for (const { dx, dy } of links) {
+        if (dx === 1) has.R = true; if (dx === -1) has.L = true;
+        if (dy === 1) has.D = true; if (dy === -1) has.U = true;
+      }
+      if (links.length < 2) {
+        const vertical = has.U || has.D;
+        has.L = has.R = !vertical; has.U = has.D = vertical;
+      }
+      const ox = OX + s.x * cell, oy = OY + s.y * cell;
+      for (const k of 'LRUD') if (has[k]) for (const [cx, cy] of ZHALF[k]) set(ox + cx, oy + cy);
+    });
+  }
+  function drawPlay() { clear(); drawScore(); drawBoard(); }
+  function drawOver(blinkOn) {
+    drawPlay();
+    const msg = game.won ? 'YOU WIN' : 'GAME OVER';
+    const sc = 'SCORE ' + String(Math.min(game.score, 999)).padStart(3, '0');
+    const w = Math.max(textWidth(msg), textWidth(sc), textWidth('PRESS START')) + 8, h = 29;
+    const x = Math.round((LCD.cols - w) / 2), y = Math.round(OY + (GR * GAME.cell - h) / 2);
+    rect(x, y, w, h, 0); frame(x, y, w, h);
+    drawCentered(msg, y + 4); drawCentered(sc, y + 12);
+    if (blinkOn) drawCentered('PRESS START', y + 20);
+  }
+  function drawPause(blinkOn) {
+    drawPlay();
+    const w = textWidth('PAUSE') + 8, h = 13;
+    const x = Math.round((LCD.cols - w) / 2), y = Math.round(OY + (GR * GAME.cell - h) / 2);
+    rect(x, y, w, h, 0); frame(x, y, w, h);
+    if (blinkOn) drawCentered('PAUSE', y + 4);
+  }
+
+  let state = 'title';          // title | play | over | paused
+  let acc = 0, lastT = -1, blinkOn = true, overAt = 0, dirty = true;
+  const api = { canvas, lcd: L, game, config: { LCD, GAME, GC, GR, OX, OY }, onGameOver: null,
+    get state() { return state; }, get score() { return game.score; } };
+
+  function start() { game.reset(); acc = 0; state = 'play'; dirty = true; }
+  api.action = () => {
+    if (state === 'title') start();
+    else if (state === 'over' && performance.now() - overAt > 400) start();
+    else if (state === 'paused') { state = 'play'; dirty = true; }
+  };
+  api.pause = () => {
+    if (state === 'play') { state = 'paused'; dirty = true; }
+    else if (state === 'paused') { state = 'play'; dirty = true; }
+  };
+  api.pauseIfPlaying = () => { if (state === 'play') { state = 'paused'; dirty = true; } };
+  api.setDir = (x, y) => { if (state === 'play') game.setDir(x, y); else api.action(); };
+  api.redraw = () => { dirty = true; };
+  api.update = (t) => {                      // call every animation frame with a ms timestamp
+    if (lastT < 0) lastT = t;
+    const dt = Math.min(t - lastT, 250); lastT = t;
+    if (state === 'play') {
+      acc += dt;
+      while (acc >= GAME.tickMs) {
+        acc -= GAME.tickMs;
+        game.tick(); dirty = true;
+        if (game.over) { state = 'over'; overAt = performance.now(); if (api.onGameOver) api.onGameOver(game.score, game.won); break; }
+      }
+    }
+    const b = Math.floor(t / 500) % 2 === 0;
+    if (b !== blinkOn) { blinkOn = b; if (state !== 'play') dirty = true; }
+    if (dirty) {
+      if (state === 'title') drawTitle(blinkOn);
+      else if (state === 'play') drawPlay();
+      else if (state === 'over') drawOver(blinkOn);
+      else drawPause(blinkOn);
+      blit(); dirty = false;
+    }
+  };
+  game.reset();
+  return api;
+}
+// <<VIPER-END>>
+
+/* ---------------------------------------------------------------------
+   PURE HELPERS  (geometry + input maths; no DOM, no GL)
+   --------------------------------------------------------------------- */
+// <<PURE-START>>
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeInOutCubic = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const easeOutBack = (t, s = 0.45) => { const c3 = s + 1, u = t - 1; return 1 + c3 * u * u * u + s * u * u; };
+
+// Fit a flat display to a face mesh: returns an orthonormal frame on that face.
+// right = +x projected onto the face, up = normal x right, so the display's
+// "up" always points the way a reader would expect for the face's outward side.
+function fitFacePlane(mesh, frameObj, expectN) {
+  mesh.updateWorldMatrix(true, false); frameObj.updateWorldMatrix(true, false);
+  const m = new THREE.Matrix4().copy(frameObj.matrixWorld).invert().multiply(mesh.matrixWorld);
+  const g = mesh.geometry, pa = g.attributes.position;
+  const V = []; for (let i = 0; i < pa.count; i++) V.push(new THREE.Vector3().fromBufferAttribute(pa, i).applyMatrix4(m));
+  const idx = g.index ? g.index.array : null;
+  const tris = idx ? idx.length / 3 : pa.count / 3;
+  const n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let t = 0; t < tris; t++) {
+    const a = V[idx ? idx[3 * t] : 3 * t], b = V[idx ? idx[3 * t + 1] : 3 * t + 1], d = V[idx ? idx[3 * t + 2] : 3 * t + 2];
+    e1.subVectors(b, a); e2.subVectors(d, a); n.add(c.crossVectors(e1, e2));
+  }
+  n.normalize(); if (n.dot(expectN) < 0) n.negate();
+  const r = new THREE.Vector3(1, 0, 0); r.addScaledVector(n, -r.dot(n)).normalize();
+  const up = new THREE.Vector3().crossVectors(n, r).normalize();
+  let minA = Infinity, maxA = -Infinity, minB = Infinity, maxB = -Infinity, sumD = 0;
+  for (const v of V) {
+    const a = v.dot(r), b = v.dot(up);
+    minA = Math.min(minA, a); maxA = Math.max(maxA, a); minB = Math.min(minB, b); maxB = Math.max(maxB, b); sumD += v.dot(n);
+  }
+  const center = new THREE.Vector3().addScaledVector(r, (minA + maxA) / 2).addScaledVector(up, (minB + maxB) / 2).addScaledVector(n, sumD / V.length);
+  return { center, r, up, n, W: maxA - minA, H: maxB - minB };
+}
+// Largest display of a given aspect (w/h) that fits inside the face, inset a little.
+function displaySize(fit, aspect, inset) {
+  const aw = fit.W * inset.w, ah = fit.H * inset.h;
+  return aw / ah > aspect ? { w: ah * aspect, h: ah } : { w: aw, h: aw / aspect };
+}
+function placeDisplay(parent, fit, size, material, lift, flipU, flipV) {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size.w, size.h), material);
+  mesh.position.copy(fit.center).addScaledVector(fit.n, lift);
+  mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(fit.r, fit.up, fit.n));
+  if (material.map) {
+    material.map.repeat.set(flipU ? -1 : 1, flipV ? -1 : 1);
+    material.map.offset.set(flipU ? 1 : 0, flipV ? 1 : 0);
+  }
+  parent.add(mesh);
+  return mesh;
+}
+
+// Camera framing: smallest distance along `dir` that keeps every point in view.
+function worldPoints(root) {
+  root.updateMatrixWorld(true);
+  const out = []; const v = new THREE.Vector3();
+  root.traverse(o => {
+    if (!o.isMesh || o.userData.skipFrame) return;
+    const pa = o.geometry.attributes.position;
+    for (let i = 0; i < pa.count; i++) { v.fromBufferAttribute(pa, i).applyMatrix4(o.matrixWorld); out.push(v.x, v.y, v.z); }
+  });
+  return new Float32Array(out);
+}
+function fitCamera(points, dir, fovDeg, aspect, pad) {
+  const d = dir.clone().normalize();
+  const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), d).normalize();
+  const upc = new THREE.Vector3().crossVectors(d, right);
+  const tv = Math.tan(THREE.MathUtils.degToRad(fovDeg) / 2), th = tv * aspect;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < points.length; i += 3) {
+    const x = points[i], y = points[i + 1], z = points[i + 2];
+    const px = x * right.x + y * right.y + z * right.z, py = x * upc.x + y * upc.y + z * upc.z, pz = x * d.x + y * d.y + z * d.z;
+    minX = Math.min(minX, px); maxX = Math.max(maxX, px); minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+    minZ = Math.min(minZ, pz); maxZ = Math.max(maxZ, pz);
+  }
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+  let D = 0;
+  for (let i = 0; i < points.length; i += 3) {
+    const x = points[i], y = points[i + 1], z = points[i + 2];
+    const px = x * right.x + y * right.y + z * right.z - cx, py = x * upc.x + y * upc.y + z * upc.z - cy, pz = x * d.x + y * d.y + z * d.z - cz;
+    D = Math.max(D, pz + Math.max(Math.abs(px) / th, Math.abs(py) / tv));
+  }
+  const T = new THREE.Vector3().addScaledVector(right, cx).addScaledVector(upc, cy).addScaledVector(d, cz);
+  return { T, D: D * pad, dir: d };
+}
+
+// Which way did the rocker get pressed?  (lx, lz) = hit point in the rocker's local space.
+// From the player's seat the hinge is "up", so -z is up and +z is down.
+function classifyRocker(lx, lz, halfW, halfD) {
+  const nx = lx / halfW, nz = lz / halfD;
+  if (Math.abs(nx) < 0.22 && Math.abs(nz) < 0.3) return 'center';
+  return Math.abs(nx) > Math.abs(nz) ? (nx > 0 ? 'right' : 'left') : (nz > 0 ? 'down' : 'up');
+}
+const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+
+// Tag the named nodes so a raycast hit can be walked up to its part.
+function tagParts(root, names) {
+  const found = {};
+  for (const n of names) { const o = root.getObjectByName(n); if (o) { o.userData.part = n; found[n] = o; } }
+  return found;
+}
+function partOf(obj, stopAt) {
+  for (let o = obj; o && o !== stopAt; o = o.parent) if (o.userData && o.userData.part) return o;
+  return null;
+}
+// <<PURE-END>>
+
+/* ---------------------------------------------------------------------
+   MAIN
+   --------------------------------------------------------------------- */
+const KEYMAP = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down',
+                 ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' };
+const PART_NAMES = ['PhoneTop', 'PhoneBottom', 'Direction', 'SideButton', 'L', 'R', 'Power', 'Star', 'Pound',
+                    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+// Nokia-style number keys steer the snake
+const NUMKEY_DIR = { '2': 'up', '8': 'down', '4': 'left', '6': 'right' };
+
+const statusEl = document.getElementById('status'), hintEl = document.getElementById('hint');
+const emit = (event, extra = {}) => {
+  try { if (window.parent !== window) window.parent.postMessage(Object.assign({ source: 'viper', event }, extra), '*'); } catch (e) {}
+  window.dispatchEvent(new CustomEvent('viper:' + event, { detail: extra }));
+};
+
+(function main() {
+  if (typeof THREE === 'undefined' || !THREE.GLTFLoader) {
+    statusEl.textContent = 'three.js could not be loaded (are you offline?).'; return;
+  }
+  const glCanvas = document.getElementById('gl');
+  const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(CONFIG.fov, 1, 0.01, 50);
+
+  /* ---- environment + lights (the GreyPhone material is fully metallic, so it needs something to reflect) */
+  function makeEnvironment() {
+    const s = new THREE.Scene();
+    s.add(new THREE.Mesh(new THREE.BoxGeometry(8, 8, 8), new THREE.MeshBasicMaterial({ color: 0x3a2f26, side: THREE.BackSide })));
+    const panel = (w, h, pos, hex, mult) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(mult), side: THREE.DoubleSide }));
+      m.position.set(...pos); m.lookAt(0, 0, 0); s.add(m);
+    };
+    panel(3, 2, [-3.8, 2, 1], 0xffb878, 6);     // warm "lamp" panel, camera-left
+    panel(4, 4, [0, 3.9, 0], 0xfff2e0, 3);      // ceiling panel
+    panel(2, 3, [3.8, 0.5, -1], 0xa8c4ff, 1.2); // cool window on the right
+    const pm = new THREE.PMREMGenerator(renderer);
+    const rt = pm.fromScene(s, 0.04); pm.dispose();
+    return rt.texture;
+  }
+  scene.environment = makeEnvironment();
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x2a1d10, 0.2);
+  const keyL = new THREE.DirectionalLight(0xffc27a, 1.4); keyL.position.set(-0.8, 1.0, 0.5);
+  const topL = new THREE.DirectionalLight(0xfff4e6, 0);   topL.position.set(0.1, 1.4, 0.1);
+  const glow = new THREE.PointLight(0x9fcf7a, 0, 0.7, 2);
+  scene.add(hemi, keyL, topL);
+  const envMats = [];
+  const PRESETS = {
+    lamp:     { hemi: 0.18, key: 1.5, top: 0.0, env: 0.35, glow: 0.0 },
+    overhead: { hemi: 0.45, key: 0.35, top: 1.25, env: 0.6, glow: 0.0 },
+    off:      { hemi: 0.04, key: 0.0, top: 0.0, env: 0.06, glow: 0.45 },
+  };
+  function setLighting(name) {
+    const p = PRESETS[name] || PRESETS.lamp;
+    hemi.intensity = p.hemi; keyL.intensity = p.key; topL.intensity = p.top; glow.intensity = p.glow;
+    for (const m of envMats) m.envMapIntensity = p.env;
+    CONFIG.lighting = PRESETS[name] ? name : 'lamp';
+  }
+
+  /* ---- soft contact shadow so the phone doesn't float */
+  (function () {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+    gr.addColorStop(0, 'rgba(0,0,0,.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.75, 1.15),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    blob.rotation.x = -Math.PI / 2; blob.position.set(0.01, -0.062, 0.1); blob.userData.skipFrame = true;
+    scene.add(blob);
+  })();
+
+  /* ---- game + screens */
+  const viper = createViper(document.createElement('canvas'), CONFIG.lcd, COLORS);
+  const lcdTex = new THREE.CanvasTexture(viper.canvas);
+  lcdTex.encoding = THREE.sRGBEncoding;
+  lcdTex.magFilter = THREE.NearestFilter; lcdTex.minFilter = THREE.LinearMipmapLinearFilter;
+  lcdTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  viper.lcd.onFrame = () => { lcdTex.needsUpdate = true; };
+  viper.onGameOver = (score, won) => emit('gameover', { score, won });
+  viper.update(performance.now());          // paint the title screen once so the lid never opens on a blank LCD
+
+  let outer = null, outerTex = null;
+  if (CONFIG.outerScreen) {
+    outer = makeLcd(document.createElement('canvas'), { cols: 28, rows: 40, pitch: 8, gap: 1, bezel: 8 }, COLORS);
+    outerTex = new THREE.CanvasTexture(outer.canvas);
+    outerTex.encoding = THREE.sRGBEncoding; outerTex.magFilter = THREE.NearestFilter;
+    outerTex.minFilter = THREE.LinearMipmapLinearFilter; outerTex.anisotropy = lcdTex.anisotropy;
+    outer.onFrame = () => { outerTex.needsUpdate = true; };
+  }
+  let lastMinute = -1;
+  function drawOuter() {
+    const d = new Date(), key = d.getHours() * 60 + d.getMinutes();
+    if (key === lastMinute) return; lastMinute = key;
+    const hh = String(d.getHours()).padStart(2, '0'), mm = String(d.getMinutes()).padStart(2, '0');
+    outer.clear();
+    outer.drawCentered(hh, 4, 3); outer.drawCentered(mm, 22, 3);
+    outer.drawCentered('VIPER', 34, 1);
+    outer.blit();
+  }
+
+  /* ---- load the model */
+  new THREE.GLTFLoader().load(CONFIG.glb, gltf => {
+    try { setup(gltf); } catch (err) { fail(err); }
+  }, undefined, err => fail(err));
+
+  function fail(err) {
+    console.error(err);
+    statusEl.innerHTML = 'Could not load <b>' + CONFIG.glb + '</b>.<br>' +
+      (location.protocol === 'file:' ? 'Browsers block this from file:// - serve the folder instead, e.g. <kbd>python -m http.server</kbd>' : String(err && err.message || err));
+  }
+
+  function setup(gltf) {
+    const root = gltf.scene; scene.add(root);
+    const parts = tagParts(root, PART_NAMES);
+    const top = parts.PhoneTop, rocker = parts.Direction;
+    if (!top || !rocker) throw new Error('Expected nodes named PhoneTop and Direction in the GLB.');
+    root.traverse(o => { if (o.isMesh && o.material) { o.material.envMapIntensity = 0.35; if (envMats.indexOf(o.material) < 0) envMats.push(o.material); } });
+
+    // Displays, fitted while the lid is closed so they live in PhoneTop's own frame.
+    top.rotation.x = 0; root.updateMatrixWorld(true);
+    const screenMesh = root.getObjectByName('Screen'), screenSm = root.getObjectByName('ScreenSm');
+    let lcdPlane = null, outerPlane = null;
+    if (screenMesh) {
+      const fit = fitFacePlane(screenMesh, top, new THREE.Vector3(0, -1, 0));       // faces the keypad when closed
+      const size = displaySize(fit, viper.lcd.TW / viper.lcd.TH, CONFIG.screenInset);
+      const mat = new THREE.MeshBasicMaterial({ map: lcdTex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      lcdPlane = placeDisplay(top, fit, size, mat, CONFIG.lift, CONFIG.flipU, CONFIG.flipV);
+      lcdPlane.userData.part = 'LCD'; lcdPlane.userData.skipFrame = true;
+      glow.position.copy(fit.center).addScaledVector(fit.n, 0.03); top.add(glow);
+      lcdPlane.userData.fit = fit;
+    } else console.warn('No node named "Screen" found.');
+    if (outer && screenSm) {
+      const fit = fitFacePlane(screenSm, top, new THREE.Vector3(0, 1, 0));          // outer face of the lid
+      const size = displaySize(fit, outer.TW / outer.TH, { w: 0.9, h: 0.9 });
+      const mat = new THREE.MeshBasicMaterial({ map: outerTex, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+      outerPlane = placeDisplay(top, fit, size, mat, CONFIG.lift, false, false);
+      outerPlane.userData.part = 'LCD_SM'; outerPlane.userData.skipFrame = true;
+      drawOuter();
+    }
+
+    // Rocker size (needed to tell up/down/left/right from a hit point), and key base heights.
+    const rb = new THREE.Box3().setFromObject(rocker), rs = rb.getSize(new THREE.Vector3());
+    const rockerHalf = { w: rs.x / 2, d: rs.z / 2 };
+    for (const n of PART_NAMES) { const o = parts[n]; if (o) { o.userData.baseY = o.position.y; o.userData.baseRot = o.rotation.clone(); } }
+
+    // Camera framing for both poses (recomputed on resize)
+    const openRad = THREE.MathUtils.degToRad(CONFIG.openAngleDeg);
+    const dirVec = new THREE.Vector3(...CONFIG.cameraDir);
+    top.rotation.x = 0;          const ptsClosed = worldPoints(root);
+    top.rotation.x = -openRad;   const ptsOpen = worldPoints(root);
+    let zoomCorners = null, zoomNormal = null;
+    if (lcdPlane) {                                   // the display's four corners + facing, in the open pose
+      const pr = lcdPlane.geometry.parameters, c = [];
+      for (const [sx, sy] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
+        const q = new THREE.Vector3(sx * pr.width / 2, sy * pr.height / 2, 0).applyMatrix4(lcdPlane.matrixWorld); c.push(q.x, q.y, q.z);
+      }
+      zoomCorners = new Float32Array(c);
+      zoomNormal = new THREE.Vector3(0, 0, 1).transformDirection(lcdPlane.matrixWorld);
+    }
+    top.rotation.x = 0; root.updateMatrixWorld(true);
+    let fitC, fitO, fitS;
+    function refit() {
+      const w = innerWidth, h = innerHeight, aspect = w / h;
+      renderer.setSize(w, h, false); camera.aspect = aspect; camera.updateProjectionMatrix();
+      fitC = fitCamera(ptsClosed, dirVec, CONFIG.fov, aspect, CONFIG.pad);
+      fitO = fitCamera(ptsOpen, dirVec, CONFIG.fov, aspect, CONFIG.pad);
+      fitS = zoomCorners ? fitCamera(zoomCorners, zoomNormal.clone().lerp(dirVec.clone().normalize(), 0.12).normalize(), CONFIG.fov, aspect, CONFIG.zoomPad) : fitO;
+    }
+    refit(); addEventListener('resize', refit);
+
+    /* ---- zoom: pull in to the screen while playing */
+    let zoomK = 0, manualZoom = null, lastVState = viper.state, lastNow = 0;
+    const autoZoomTarget = () => (lid.state === 'open' && viper.state !== 'title') ? 1 : 0;
+
+    /* ---- lid state machine */
+    const lid = { state: 'closed', angle: 0, from: 0, to: 0, t0: 0, dur: 1, exitAfter: false };
+    function startLid(to, ms) { lid.from = lid.angle; lid.to = to; lid.t0 = performance.now(); lid.dur = ms; }
+    function open() {
+      if (lid.state === 'open' || lid.state === 'opening') return;
+      lid.state = 'opening'; lid.exitAfter = false; startLid(openRad, CONFIG.openMs); setHint();
+    }
+    function close(exitAfter) {
+      if (lid.state === 'closed' || lid.state === 'closing') return;
+      viper.pauseIfPlaying(); lid.state = 'closing'; lid.exitAfter = !!exitAfter; startLid(0, CONFIG.closeMs); setHint();
+    }
+    function updateLid(now) {
+      if (lid.state !== 'opening' && lid.state !== 'closing') return;
+      const p = clamp((now - lid.t0) / lid.dur, 0, 1);
+      const e = lid.state === 'opening' ? easeOutBack(p) : easeInOutCubic(p);
+      lid.angle = lerp(lid.from, lid.to, e);
+      if (p >= 1) {
+        lid.angle = lid.to;
+        if (lid.state === 'opening') { lid.state = 'open'; emit('opened'); viper.redraw(); }
+        else { lid.state = 'closed'; emit('closed'); if (lid.exitAfter) emit('exit'); }
+        setHint();
+      }
+    }
+    function setHint() {
+      hintEl.style.opacity = 1;
+      hintEl.innerHTML = lid.state === 'closed' || lid.state === 'closing'
+        ? 'Click the phone to open it'
+        : 'Arrows / WASD or the rocker to steer &middot; <kbd>Space</kbd> start &middot; <kbd>P</kbd> pause &middot; <kbd>Z</kbd> zoom &middot; <kbd>Esc</kbd> close';
+      clearTimeout(setHint.t);
+      if (lid.state === 'open') setHint.t = setTimeout(() => { hintEl.style.opacity = 0; }, 6000);
+    }
+
+    /* ---- button feedback */
+    const presses = [];     // {obj, t0}
+    const tilt = { x: 0, z: 0, until: 0 };
+    function pressKey(name) { const o = parts[name]; if (o) presses.push({ obj: o, t0: performance.now() }); }
+    function tiltRocker(dir) {
+      const T = CONFIG.rockerTilt;
+      tilt.x = dir === 'up' ? -T : dir === 'down' ? T : 0;
+      tilt.z = dir === 'right' ? -T : dir === 'left' ? T : 0;
+      tilt.until = performance.now() + 160;
+    }
+    function updateButtons(now) {
+      for (let i = presses.length - 1; i >= 0; i--) {
+        const pr = presses[i], p = (now - pr.t0) / 150;
+        if (p >= 1) { pr.obj.position.y = pr.obj.userData.baseY; presses.splice(i, 1); continue; }
+        pr.obj.position.y = pr.obj.userData.baseY - Math.sin(p * Math.PI) * CONFIG.keyTravel;
+      }
+      const tx = now < tilt.until ? tilt.x : 0, tz = now < tilt.until ? tilt.z : 0;
+      rocker.rotation.x += (tx - rocker.rotation.x) * 0.35;
+      rocker.rotation.z += (tz - rocker.rotation.z) * 0.35;
+    }
+    function steer(dir) { const [x, y] = DIRS[dir]; viper.setDir(x, y); tiltRocker(dir); }
+
+    /* ---- pointer picking */
+    const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+    function pick(e) {
+      const r = glCanvas.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      for (const h of raycaster.intersectObject(root, true)) {
+        const part = partOf(h.object, scene);
+        if (!part) continue;
+        if (part.userData.part === 'PhoneBottom') {      // the middle of the rocker is open, so the body shows through
+          const lp = rocker.worldToLocal(h.point.clone());
+          if (Math.abs(lp.x) < rockerHalf.w && Math.abs(lp.z) < rockerHalf.d) return { part: 'Direction', obj: rocker, hit: h };
+        }
+        return { part: part.userData.part, obj: part, hit: h };
+      }
+      return null;
+    }
+    let swipe = null;
+    glCanvas.addEventListener('pointerdown', e => {
+      glCanvas.focus({ preventScroll: true });
+      const h = pick(e); if (!h) return;
+      if (lid.state === 'closed') { open(); return; }
+      if (lid.state !== 'open') return;
+      e.preventDefault();
+      const name = h.part;
+      if (name === 'LCD') { swipe = { x: e.clientX, y: e.clientY }; return; }
+      if (name === 'Direction') {
+        const lp = rocker.worldToLocal(h.hit.point.clone());
+        const c = classifyRocker(lp.x, lp.z, rockerHalf.w, rockerHalf.d);
+        if (c === 'center') { viper.action(); pressKey('5'); } else steer(c);
+        return;
+      }
+      if (NUMKEY_DIR[name]) { steer(NUMKEY_DIR[name]); pressKey(name); return; }
+      if (name === '5' || name === 'L') { viper.action(); pressKey(name); return; }
+      if (name === 'R') { viper.pause(); pressKey(name); return; }
+      if (name === 'Power') { pressKey(name); setTimeout(() => close(true), 120); return; }
+      if (parts[name] && name !== 'PhoneTop' && name !== 'PhoneBottom') pressKey(name);   // other keys just click
+    });
+    glCanvas.addEventListener('pointerup', e => {
+      if (!swipe) return;
+      const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y; swipe = null;
+      if (Math.hypot(dx, dy) < 24) { viper.action(); return; }
+      steer(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+    });
+    glCanvas.addEventListener('pointercancel', () => { swipe = null; });
+    const ptr = { x: 0, y: 0, tx: 0, ty: 0 };
+    glCanvas.addEventListener('pointermove', e => {
+      ptr.tx = (e.clientX / innerWidth) * 2 - 1; ptr.ty = (e.clientY / innerHeight) * 2 - 1;
+      if (e.pointerType === 'mouse') { const h = pick(e); glCanvas.style.cursor = h && (lid.state === 'closed' || (h.part !== 'PhoneTop' && h.part !== 'PhoneBottom')) ? 'pointer' : 'default'; }
+    });
+
+    /* ---- keyboard */
+    document.addEventListener('keydown', e => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Escape') {
+        if (!CONFIG.escCloses) return; e.preventDefault();
+        if (lid.state === 'closed') emit('exit'); else close(true); return;
+      }
+      if (lid.state === 'closed') { if (e.key === ' ' || e.key === 'Enter' || e.key in KEYMAP) { e.preventDefault(); open(); } return; }
+      if (lid.state !== 'open') return;
+      if (e.key in KEYMAP) { e.preventDefault(); steer(KEYMAP[e.key]); return; }
+      if (e.key === 'z' || e.key === 'Z') { manualZoom = autoZoomTarget() ? 0 : 1; return; }
+      if (e.key === 'p' || e.key === 'P') { viper.pause(); pressKey('R'); return; }
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); viper.action(); pressKey('5'); return; }
+      if (viper.state === 'title' && e.key.length === 1) viper.action();
+    });
+
+    /* ---- messages from the hub */
+    addEventListener('message', e => {
+      const m = e.data; if (!m || typeof m !== 'object') return;
+      if (m.action === 'updateState' && m.flag === 'lighting') setLighting(m.value);
+      else if (m.action === 'open') open(); else if (m.action === 'close') close(false);
+    });
+    window.ViperPhone = { open, close, setLighting, viper, config: CONFIG, get lid() { return lid.state; } };
+
+    /* ---- go */
+    setLighting(CONFIG.lighting);
+    statusEl.remove(); setHint(); emit('ready');
+    if (CONFIG.autoOpen) setTimeout(open, 350);
+
+    const posV = new THREE.Vector3(), dirV = new THREE.Vector3(), AX_Y = new THREE.Vector3(0, 1, 0), AX_X = new THREE.Vector3(1, 0, 0);
+    function frame(now) {
+      requestAnimationFrame(frame);
+      updateLid(now); updateButtons(now);
+      top.rotation.x = -lid.angle;
+      if (lid.state !== 'closed') viper.update(now);
+      if (outer && lid.state === 'closed') drawOuter();
+      // camera: blend closed -> open framing with the lid, then ease in to the screen while playing
+      const dt = lastNow ? Math.min((now - lastNow) / 1000, 0.1) : 0.016; lastNow = now;
+      if (viper.state !== lastVState) { lastVState = viper.state; manualZoom = null; }
+      const wantZoom = lid.state === 'open' ? (manualZoom !== null ? manualZoom : autoZoomTarget()) : 0;
+      zoomK += (wantZoom - zoomK) * (1 - Math.exp(-dt * 4.5));
+      const s = clamp(lid.angle / openRad, 0, 1), k = s * s * (3 - 2 * s), zk = zoomK * zoomK * (3 - 2 * zoomK);
+      const T = fitC.T.clone().lerp(fitO.T, k).lerp(fitS.T, zk), D = lerp(lerp(fitC.D, fitO.D, k), fitS.D, zk);
+      ptr.x += (ptr.tx - ptr.x) * 0.05; ptr.y += (ptr.ty - ptr.y) * 0.05;
+      const sway = CONFIG.parallax * (1 - 0.6 * zk);
+      dirV.copy(fitC.dir).lerp(fitS.dir, zk).normalize()
+        .applyAxisAngle(AX_Y, -ptr.x * sway)
+        .applyAxisAngle(AX_X, -ptr.y * sway * 0.6);
+      camera.position.copy(posV.copy(T).addScaledVector(dirV, D));
+      camera.lookAt(T);
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+</body>
+</html>
