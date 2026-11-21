@@ -329,15 +329,11 @@ function createViper(canvas, lcdCfg, colors) {
 }
 // <<VIPER-END>>
 
-// <<PURE-START>>
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, t) => a + (b - a) * t;
 const easeInOutCubic = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const easeOutBack = (t, s = 0.45) => { const c3 = s + 1, u = t - 1; return 1 + c3 * u * u * u + s * u * u; };
 
-// Fit a flat display to a face mesh: returns an orthonormal frame on that face.
-// right = +x projected onto the face, up = normal x right, so the display's
-// "up" always points the way a reader would expect for the face's outward side.
 function fitFacePlane(mesh, frameObj, expectN) {
   mesh.updateWorldMatrix(true, false); frameObj.updateWorldMatrix(true, false);
   const m = new THREE.Matrix4().copy(frameObj.matrixWorld).invert().multiply(mesh.matrixWorld);
@@ -361,7 +357,6 @@ function fitFacePlane(mesh, frameObj, expectN) {
   const center = new THREE.Vector3().addScaledVector(r, (minA + maxA) / 2).addScaledVector(up, (minB + maxB) / 2).addScaledVector(n, sumD / V.length);
   return { center, r, up, n, W: maxA - minA, H: maxB - minB };
 }
-// Largest display of a given aspect (w/h) that fits inside the face, inset a little.
 function displaySize(fit, aspect, inset) {
   const aw = fit.W * inset.w, ah = fit.H * inset.h;
   return aw / ah > aspect ? { w: ah * aspect, h: ah } : { w: aw, h: aw / aspect };
@@ -378,7 +373,6 @@ function placeDisplay(parent, fit, size, material, lift, flipU, flipV) {
   return mesh;
 }
 
-// Camera framing: smallest distance along `dir` that keeps every point in view.
 function worldPoints(root) {
   root.updateMatrixWorld(true);
   const out = []; const v = new THREE.Vector3();
@@ -412,8 +406,8 @@ function fitCamera(points, dir, fovDeg, aspect, pad) {
   return { T, D: D * pad, dir: d };
 }
 
-// Which way did the rocker get pressed?  (lx, lz) = hit point in the rocker's local space.
-// From the player's seat the hinge is "up", so -z is up and +z is down.
+// Which way did the rocker get pressed
+// From the player's view the hinge is "up", so -z is up and +z is down.
 function classifyRocker(lx, lz, halfW, halfD) {
   const nx = lx / halfW, nz = lz / halfD;
   if (Math.abs(nx) < 0.22 && Math.abs(nz) < 0.3) return 'center';
@@ -431,16 +425,12 @@ function partOf(obj, stopAt) {
   for (let o = obj; o && o !== stopAt; o = o.parent) if (o.userData && o.userData.part) return o;
   return null;
 }
-// <<PURE-END>>
 
-/* ---------------------------------------------------------------------
-   MAIN
-   --------------------------------------------------------------------- */
 const KEYMAP = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down',
                  ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' };
 const PART_NAMES = ['PhoneTop', 'PhoneBottom', 'Direction', 'SideButton', 'L', 'R', 'Power', 'Star', 'Pound',
                     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-// Nokia-style number keys steer the snake
+
 const NUMKEY_DIR = { '2': 'up', '8': 'down', '4': 'left', '6': 'right' };
 
 const statusEl = document.getElementById('status'), hintEl = document.getElementById('hint');
@@ -470,9 +460,9 @@ const emit = (event, extra = {}) => {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(hex).multiplyScalar(mult), side: THREE.DoubleSide }));
       m.position.set(...pos); m.lookAt(0, 0, 0); s.add(m);
     };
-    panel(3, 2, [-3.8, 2, 1], 0xffb878, 6);     // warm "lamp" panel, camera-left
-    panel(4, 4, [0, 3.9, 0], 0xfff2e0, 3);      // ceiling panel
-    panel(2, 3, [3.8, 0.5, -1], 0xa8c4ff, 1.2); // cool window on the right
+    panel(3, 2, [-3.8, 2, 1], 0xffb878, 6);     
+    panel(4, 4, [0, 3.9, 0], 0xfff2e0, 3);     
+    panel(2, 3, [3.8, 0.5, -1], 0xa8c4ff, 1.2);
     const pm = new THREE.PMREMGenerator(renderer);
     const rt = pm.fromScene(s, 0.04); pm.dispose();
     return rt.texture;
@@ -497,7 +487,7 @@ const emit = (event, extra = {}) => {
     CONFIG.lighting = PRESETS[name] ? name : 'lamp';
   }
 
-  /* ---- soft contact shadow so the phone doesn't float */
+
   (function () {
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 4, 64, 64, 62);
@@ -509,7 +499,7 @@ const emit = (event, extra = {}) => {
     scene.add(blob);
   })();
 
-  /* ---- game + screens */
+
   const viper = createViper(document.createElement('canvas'), CONFIG.lcd, COLORS);
   const lcdTex = new THREE.CanvasTexture(viper.canvas);
   lcdTex.encoding = THREE.sRGBEncoding;
@@ -517,7 +507,7 @@ const emit = (event, extra = {}) => {
   lcdTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   viper.lcd.onFrame = () => { lcdTex.needsUpdate = true; };
   viper.onGameOver = (score, won) => emit('gameover', { score, won });
-  viper.update(performance.now());          // paint the title screen once so the lid never opens on a blank LCD
+  viper.update(performance.now());         
 
   let outer = null, outerTex = null;
   if (CONFIG.outerScreen) {
@@ -538,7 +528,7 @@ const emit = (event, extra = {}) => {
     outer.blit();
   }
 
-  /* ---- load the model */
+  /* model behavior baby */
   new THREE.GLTFLoader().load(CONFIG.glb, gltf => {
     try { setup(gltf); } catch (err) { fail(err); }
   }, undefined, err => fail(err));
@@ -556,7 +546,7 @@ const emit = (event, extra = {}) => {
     if (!top || !rocker) throw new Error('Expected nodes named PhoneTop and Direction in the GLB.');
     root.traverse(o => { if (o.isMesh && o.material) { o.material.envMapIntensity = 0.35; if (envMats.indexOf(o.material) < 0) envMats.push(o.material); } });
 
-    // Displays, fitted while the lid is closed so they live in PhoneTop's own frame.
+
     top.rotation.x = 0; root.updateMatrixWorld(true);
     const screenMesh = root.getObjectByName('Screen'), screenSm = root.getObjectByName('ScreenSm');
     let lcdPlane = null, outerPlane = null;
@@ -578,18 +568,16 @@ const emit = (event, extra = {}) => {
       drawOuter();
     }
 
-    // Rocker size (needed to tell up/down/left/right from a hit point), and key base heights.
     const rb = new THREE.Box3().setFromObject(rocker), rs = rb.getSize(new THREE.Vector3());
     const rockerHalf = { w: rs.x / 2, d: rs.z / 2 };
     for (const n of PART_NAMES) { const o = parts[n]; if (o) { o.userData.baseY = o.position.y; o.userData.baseRot = o.rotation.clone(); } }
 
-    // Camera framing for both poses (recomputed on resize)
     const openRad = THREE.MathUtils.degToRad(CONFIG.openAngleDeg);
     const dirVec = new THREE.Vector3(...CONFIG.cameraDir);
     top.rotation.x = 0;          const ptsClosed = worldPoints(root);
     top.rotation.x = -openRad;   const ptsOpen = worldPoints(root);
     let zoomCorners = null, zoomNormal = null;
-    if (lcdPlane) {                                   // the display's four corners + facing, in the open pose
+    if (lcdPlane) {                                  
       const pr = lcdPlane.geometry.parameters, c = [];
       for (const [sx, sy] of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
         const q = new THREE.Vector3(sx * pr.width / 2, sy * pr.height / 2, 0).applyMatrix4(lcdPlane.matrixWorld); c.push(q.x, q.y, q.z);
@@ -608,11 +596,11 @@ const emit = (event, extra = {}) => {
     }
     refit(); addEventListener('resize', refit);
 
-    /* ---- zoom: pull in to the screen while playing */
+    /* zoom zoom zoom make my heart go boom boom my supernova girl */
     let zoomK = 0, manualZoom = null, lastVState = viper.state, lastNow = 0;
     const autoZoomTarget = () => (lid.state === 'open' && viper.state !== 'title') ? 1 : 0;
 
-    /* ---- lid state machine */
+    /* close cover before striking! */
     const lid = { state: 'closed', angle: 0, from: 0, to: 0, t0: 0, dur: 1, exitAfter: false };
     function startLid(to, ms) { lid.from = lid.angle; lid.to = to; lid.t0 = performance.now(); lid.dur = ms; }
     function open() {
