@@ -26,38 +26,32 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 'use strict';
-/* =====================================================================
-   VIPER PHONE  -  three.js flip phone that plays Viper on its screen
-   Tweak things with the CONFIG block, or with URL params, e.g.
-     viper_phone.html?open=150&rows=48&autoopen&lighting=overhead&flipv
-   ===================================================================== */
+
 const Q = new URLSearchParams(location.search);
 const num = (k, d) => (Q.has(k) && isFinite(+Q.get(k))) ? +Q.get(k) : d;
 
 const CONFIG = {
   glb: Q.get('glb') || 'FlipPhone.glb',
-  openAngleDeg: num('open', 141),      // how far the lid swings open (closed = 0)
+  openAngleDeg: num('open', 141),      
   openMs: 800, closeMs: 600,
-  autoOpen: Q.has('autoopen'),         // open by itself after load (for the hub's zoom-in)
+  autoOpen: Q.has('autoopen'),         
   lcd: { cols: 84, rows: num('rows', 74), pitch: 10, gap: 1, bezel: 10 },
-  //   rows 74 = fills the near-square screen. rows 48 = classic Nokia, with bars above/below.
-  screenInset: { w: 0.92, h: 0.95 },   // how much of the screen mesh the display covers
-  lift: 0.0006,                        // display sits this far in front of the screen mesh
-  flipU: Q.has('flipu'), flipV: Q.has('flipv'),   // if the image ever shows mirrored/upside down
-  outerScreen: Q.get('outer') !== '0', // small clock screen on the closed lid
-  cameraDir: [0, 0.74, 0.67],          // direction from the phone toward the camera
+  
+  screenInset: { w: 0.92, h: 0.95 },   
+  lift: 0.0006,                       
+  flipU: Q.has('flipu'), flipV: Q.has('flipv'),   
+  outerScreen: Q.get('outer') !== '0', 
+  cameraDir: [0, 0.74, 0.67],        
   fov: 28, pad: 1.12,
-  zoomPad: 1.3,                        // how snugly the camera frames the screen while you play
-  parallax: num('parallax', 0.05),     // gentle camera sway toward the pointer (0 = off)
-  escCloses: true,                     // Esc closes the lid and tells the hub to exit
+  zoomPad: 1.3,                       
+  parallax: num('parallax', 0.05),    
+  escCloses: true,                    
   lighting: Q.get('lighting') || 'lamp',   // lamp | overhead | off
   keyTravel: 0.0028, rockerTilt: 0.12,
 };
 if (Q.has('transparent')) document.body.classList.add('transparent');
 
-/* ---------------------------------------------------------------------
-   LCD BUFFER  (shared by the game screen and the little outer clock)
-   --------------------------------------------------------------------- */
+
 const COLORS = { bg: '#8a9a6a', on: '#1a2a0a', off: '#7a8a5a', bezel: '#b0be88' };
 const FONT = {
   '0':['###','#.#','#.#','#.#','###'], '1':['.#.','.#.','.#.','.#.','.#.'],
@@ -118,9 +112,6 @@ function makeLcd(canvas, cfg, colors) {
   return L;
 }
 
-/* ---------------------------------------------------------------------
-   VIPER  (your game, unchanged in spirit; the play field just got taller)
-   --------------------------------------------------------------------- */
 // <<VIPER-START>>
 const TITLE_ART_TEXT = `
 private static readonly string[] StartArt = new string[]
