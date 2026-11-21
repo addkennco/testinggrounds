@@ -303,7 +303,7 @@ function createViper(canvas, lcdCfg, colors) {
   api.pauseIfPlaying = () => { if (state === 'play') { state = 'paused'; dirty = true; } };
   api.setDir = (x, y) => { if (state === 'play') game.setDir(x, y); else api.action(); };
   api.redraw = () => { dirty = true; };
-  api.update = (t) => {                      // call every animation frame with a ms timestamp
+  api.update = (t) => {                    
     if (lastT < 0) lastT = t;
     const dt = Math.min(t - lastT, 250); lastT = t;
     if (state === 'play') {
@@ -329,9 +329,6 @@ function createViper(canvas, lcdCfg, colors) {
 }
 // <<VIPER-END>>
 
-/* ---------------------------------------------------------------------
-   PURE HELPERS  (geometry + input maths; no DOM, no GL)
-   --------------------------------------------------------------------- */
 // <<PURE-START>>
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const lerp = (a, b, t) => a + (b - a) * t;
