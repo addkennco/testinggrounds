@@ -415,7 +415,6 @@ function classifyRocker(lx, lz, halfW, halfD) {
 }
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
-// Tag the named nodes so a raycast hit can be walked up to its part.
 function tagParts(root, names) {
   const found = {};
   for (const n of names) { const o = root.getObjectByName(n); if (o) { o.userData.part = n; found[n] = o; } }
@@ -626,13 +625,12 @@ const emit = (event, extra = {}) => {
     function setHint() {
       hintEl.style.opacity = 1;
       hintEl.innerHTML = lid.state === 'closed' || lid.state === 'closing'
-        ? 'Click the phone to open it'
-        : 'Arrows / WASD or the rocker to steer &middot; <kbd>Space</kbd> start &middot; <kbd>P</kbd> pause &middot; <kbd>Z</kbd> zoom &middot; <kbd>Esc</kbd> close';
+        ? 'Open the phone?'
+        : 'Arrows / WASD to control <kbd>Esc</kbd> to close';
       clearTimeout(setHint.t);
       if (lid.state === 'open') setHint.t = setTimeout(() => { hintEl.style.opacity = 0; }, 6000);
     }
 
-    /* ---- button feedback */
     const presses = [];     // {obj, t0}
     const tilt = { x: 0, z: 0, until: 0 };
     function pressKey(name) { const o = parts[name]; if (o) presses.push({ obj: o, t0: performance.now() }); }
@@ -654,7 +652,6 @@ const emit = (event, extra = {}) => {
     }
     function steer(dir) { const [x, y] = DIRS[dir]; viper.setDir(x, y); tiltRocker(dir); }
 
-    /* ---- pointer picking */
     const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
     function pick(e) {
       const r = glCanvas.getBoundingClientRect();
@@ -663,7 +660,7 @@ const emit = (event, extra = {}) => {
       for (const h of raycaster.intersectObject(root, true)) {
         const part = partOf(h.object, scene);
         if (!part) continue;
-        if (part.userData.part === 'PhoneBottom') {      // the middle of the rocker is open, so the body shows through
+        if (part.userData.part === 'PhoneBottom') {     
           const lp = rocker.worldToLocal(h.point.clone());
           if (Math.abs(lp.x) < rockerHalf.w && Math.abs(lp.z) < rockerHalf.d) return { part: 'Direction', obj: rocker, hit: h };
         }
@@ -690,7 +687,7 @@ const emit = (event, extra = {}) => {
       if (name === '5' || name === 'L') { viper.action(); pressKey(name); return; }
       if (name === 'R') { viper.pause(); pressKey(name); return; }
       if (name === 'Power') { pressKey(name); setTimeout(() => close(true), 120); return; }
-      if (parts[name] && name !== 'PhoneTop' && name !== 'PhoneBottom') pressKey(name);   // other keys just click
+      if (parts[name] && name !== 'PhoneTop' && name !== 'PhoneBottom') pressKey(name);  
     });
     glCanvas.addEventListener('pointerup', e => {
       if (!swipe) return;
@@ -705,7 +702,7 @@ const emit = (event, extra = {}) => {
       if (e.pointerType === 'mouse') { const h = pick(e); glCanvas.style.cursor = h && (lid.state === 'closed' || (h.part !== 'PhoneTop' && h.part !== 'PhoneBottom')) ? 'pointer' : 'default'; }
     });
 
-    /* ---- keyboard */
+    /* keyboard cat is in the house */
     document.addEventListener('keydown', e => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'Escape') {
@@ -721,7 +718,7 @@ const emit = (event, extra = {}) => {
       if (viper.state === 'title' && e.key.length === 1) viper.action();
     });
 
-    /* ---- messages from the hub */
+
     addEventListener('message', e => {
       const m = e.data; if (!m || typeof m !== 'object') return;
       if (m.action === 'updateState' && m.flag === 'lighting') setLighting(m.value);
@@ -729,7 +726,7 @@ const emit = (event, extra = {}) => {
     });
     window.ViperPhone = { open, close, setLighting, viper, config: CONFIG, get lid() { return lid.state; } };
 
-    /* ---- go */
+    /* go go go */
     setLighting(CONFIG.lighting);
     statusEl.remove(); setHint(); emit('ready');
     if (CONFIG.autoOpen) setTimeout(open, 350);
